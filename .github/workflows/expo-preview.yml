@@ -81,6 +81,13 @@ jobs:
           path: expo-url.txt
           retention-days: 1
 
+      - name: Create URL gist
+        if: steps.expo.outputs.EXPO_URL != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "::notice title=Expo Go URL::${{ steps.expo.outputs.EXPO_URL }}"
+
       - name: Keep server alive
         if: steps.expo.outputs.EXPO_URL != ''
         run: |
