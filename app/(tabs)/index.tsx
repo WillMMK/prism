@@ -5,48 +5,25 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Dimensions,
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LineChart } from 'react-native-chart-kit';
 import { useBudgetStore } from '../../src/store/budgetStore';
-import { formatCurrency, formatPercent, getMonthName } from '../../src/utils/formatters';
-
-const screenWidth = Dimensions.get('window').width;
+import { formatCurrency, formatPercent } from '../../src/utils/formatters';
 
 export default function Dashboard() {
   const [refreshing, setRefreshing] = React.useState(false);
-  const { getBudgetSummary, getCategorySpending, getMonthlyReports, getRecentTransactions, sheetsConfig } =
+  const { getBudgetSummary, getCategorySpending, getRecentTransactions, sheetsConfig } =
     useBudgetStore();
 
   const summary = getBudgetSummary();
   const categorySpending = getCategorySpending();
-  const monthlyReports = getMonthlyReports(6).reverse();
   const recentTransactions = getRecentTransactions(5);
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
-    // TODO: Refresh data from Google Sheets
     setTimeout(() => setRefreshing(false), 1000);
   }, []);
-
-  const chartData = {
-    labels: monthlyReports.map((r) => getMonthName(r.month)),
-    datasets: [
-      {
-        data: monthlyReports.length > 0 ? monthlyReports.map((r) => r.expenses) : [0],
-        color: (opacity = 1) => `rgba(233, 69, 96, ${opacity})`,
-        strokeWidth: 2,
-      },
-      {
-        data: monthlyReports.length > 0 ? monthlyReports.map((r) => r.income) : [0],
-        color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`,
-        strokeWidth: 2,
-      },
-    ],
-    legend: ['Expenses', 'Income'],
-  };
 
   return (
     <ScrollView
@@ -97,42 +74,6 @@ export default function Dashboard() {
         </View>
       </View>
 
-      {/* Spending Trend Chart */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Spending Trend</Text>
-        {monthlyReports.length > 0 ? (
-          <View style={styles.chartContainer}>
-            <LineChart
-              data={chartData}
-              width={screenWidth - 40}
-              height={200}
-              chartConfig={{
-                backgroundColor: '#16213e',
-                backgroundGradientFrom: '#16213e',
-                backgroundGradientTo: '#1a1a2e',
-                decimalPlaces: 0,
-                color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
-                labelColor: (opacity = 1) => `rgba(136, 146, 176, ${opacity})`,
-                style: {
-                  borderRadius: 16,
-                },
-                propsForDots: {
-                  r: '4',
-                  strokeWidth: '2',
-                },
-              }}
-              bezier
-              style={styles.chart}
-            />
-          </View>
-        ) : (
-          <View style={styles.emptyChart}>
-            <Ionicons name="analytics-outline" size={48} color="#8892b0" />
-            <Text style={styles.emptyText}>Connect to Google Sheets to see your spending trend</Text>
-          </View>
-        )}
-      </View>
-
       {/* Top Categories */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Top Spending Categories</Text>
@@ -149,7 +90,9 @@ export default function Dashboard() {
           ))
         ) : (
           <View style={styles.emptyCategories}>
+            <Ionicons name="pie-chart-outline" size={48} color="#8892b0" />
             <Text style={styles.emptyText}>No spending data yet</Text>
+            <Text style={styles.emptySubtext}>Connect to Google Sheets to import data</Text>
           </View>
         )}
       </View>
@@ -291,20 +234,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 16,
   },
-  chartContainer: {
-    backgroundColor: '#16213e',
-    borderRadius: 16,
-    padding: 10,
-  },
-  chart: {
-    borderRadius: 16,
-  },
-  emptyChart: {
-    backgroundColor: '#16213e',
-    borderRadius: 16,
-    padding: 40,
-    alignItems: 'center',
-  },
   emptyText: {
     color: '#8892b0',
     fontSize: 14,
@@ -352,7 +281,7 @@ const styles = StyleSheet.create({
   emptyCategories: {
     backgroundColor: '#16213e',
     borderRadius: 12,
-    padding: 24,
+    padding: 40,
     alignItems: 'center',
   },
   transactionRow: {
