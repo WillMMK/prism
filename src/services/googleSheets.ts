@@ -6,13 +6,22 @@ import { Transaction } from '../types/budget';
 WebBrowser.maybeCompleteAuthSession();
 
 const GOOGLE_CLIENT_ID = '907648461438-lttve08jch0tc7639k16hill7smkbqur.apps.googleusercontent.com';
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly'];
+const SCOPES = [
+  'https://www.googleapis.com/auth/spreadsheets.readonly',
+  'https://www.googleapis.com/auth/drive.readonly',
+];
 
 const discovery = {
   authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
   tokenEndpoint: 'https://oauth2.googleapis.com/token',
   revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
 };
+
+export interface SpreadsheetFile {
+  id: string;
+  name: string;
+  modifiedTime: string;
+}
 
 export interface SheetInfo {
   sheetId: number;
@@ -62,6 +71,32 @@ export class GoogleSheetsService {
       throw new Error('Not authenticated with Google');
     }
     return token;
+  }
+
+  // List all spreadsheets from Google Drive
+  async listSpreadsheets(): Promise<SpreadsheetFile[]> {
+    const token = await this.getToken();
+    const url = 'https://www.googleapis.com/drive/v3/files?' + new URLSearchParams({
+      q: "mimeType='application/vnd.google-apps.spreadsheet'",
+      fields: 'files(id,name,modifiedTime)',
+      orderBy: 'modifiedTime desc',
+      pageSize: '50',
+    });
+
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        await this.clearToken();
+        throw new Error('Authentication expired. Please sign in again.');
+      }
+      throw new Error(`Failed to list spreadsheets: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.files || [];
   }
 
   // Get all sheets in a spreadsheet
