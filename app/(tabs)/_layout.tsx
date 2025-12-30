@@ -1,6 +1,5 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { View, StyleSheet } from 'react-native';
 
 export default function TabsLayout() {
   return (
@@ -10,30 +9,18 @@ export default function TabsLayout() {
           backgroundColor: '#1a1a2e',
         },
         headerTintColor: '#fff',
-        headerTitleStyle: {
-          fontWeight: '600',
-        },
         tabBarStyle: {
           backgroundColor: '#16213e',
           borderTopColor: '#0f3460',
-          borderTopWidth: 1,
-          height: 85,
-          paddingBottom: 25,
-          paddingTop: 10,
         },
         tabBarActiveTintColor: '#e94560',
         tabBarInactiveTintColor: '#8892b0',
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '500',
-        },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: 'Dashboard',
-          headerTitle: 'Budget Tracker',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="home" size={size} color={color} />
           ),
@@ -69,10 +56,3 @@ export default function TabsLayout() {
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#1a1a2e',
-  },
-});
