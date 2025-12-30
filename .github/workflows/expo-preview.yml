@@ -33,7 +33,15 @@ jobs:
 
           echo "Waiting for tunnel URL..."
           for i in {1..90}; do
-            TUNNEL_URL=$(grep -o 'exp+[^[:space:]]*' expo-output.log 2>/dev/null | head -1)
+            # Try multiple URL patterns
+            TUNNEL_URL=$(grep -oE 'exp://[^[:space:]]+' expo-output.log 2>/dev/null | head -1)
+            if [ -z "$TUNNEL_URL" ]; then
+              TUNNEL_URL=$(grep -oE 'https://[a-z0-9-]+\.ngrok[^[:space:]]*' expo-output.log 2>/dev/null | head -1)
+            fi
+            if [ -z "$TUNNEL_URL" ]; then
+              TUNNEL_URL=$(grep -oE 'exp\+[^[:space:]]+' expo-output.log 2>/dev/null | head -1)
+            fi
+
             if [ -n "$TUNNEL_URL" ]; then
               echo ""
               echo "========================================="
@@ -41,16 +49,14 @@ jobs:
               echo "$TUNNEL_URL"
               echo "========================================="
 
-              # Write to GitHub Actions Summary (visible on workflow page)
+              # Write to GitHub Actions Summary
               echo "## 📱 Expo Go Preview" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
-              echo "### Scan this URL in Expo Go:" >> $GITHUB_STEP_SUMMARY
+              echo "### Open in Expo Go:" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
               echo "$TUNNEL_URL" >> $GITHUB_STEP_SUMMARY
               echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "**Or open directly:** [Open in Expo Go](https://expo.dev/go?url=$TUNNEL_URL)" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "_Server will stay alive for ~60 minutes_" >> $GITHUB_STEP_SUMMARY
 
@@ -60,16 +66,20 @@ jobs:
             sleep 2
           done
 
+          # Show log contents for debugging
+          echo ""
+          echo "=== Current expo-output.log ==="
+          cat expo-output.log
+          echo "==============================="
+
           if [ -z "$TUNNEL_URL" ]; then
-            echo "ERROR: Could not get tunnel URL"
-            cat expo-output.log
-            exit 1
+            echo "WARNING: Could not extract tunnel URL automatically"
+            echo "Check the log above for the URL"
           fi
 
           echo ""
-          echo "Server is running. Check the Summary tab for the URL."
-          echo "This workflow will stay alive for ~60 minutes."
+          echo "Server is running. Check logs or Summary tab for the URL."
           echo ""
 
-          # Keep the job alive - show live logs
+          # Keep the job alive
           tail -f expo-output.log
