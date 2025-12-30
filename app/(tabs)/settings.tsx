@@ -20,6 +20,10 @@ WebBrowser.maybeCompleteAuthSession();
 
 const GOOGLE_CLIENT_ID = '907648461438-2q8au98sdpogg0hiu3sc9g5o3uruhqmf.apps.googleusercontent.com';
 
+const redirectUri = AuthSession.makeRedirectUri({
+  scheme: 'budget-tracker',
+});
+
 const discovery = {
   authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
   tokenEndpoint: 'https://oauth2.googleapis.com/token',
@@ -38,10 +42,14 @@ export default function Settings() {
 
   const { setSheetsConfig, setTransactions, sheetsConfig } = useBudgetStore();
 
+  // Log redirect URI for debugging
+  console.log('Redirect URI:', redirectUri);
+
   // Set up Google OAuth with Drive scope
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
     {
       clientId: GOOGLE_CLIENT_ID,
+      redirectUri,
       scopes: [
         'https://www.googleapis.com/auth/spreadsheets.readonly',
         'https://www.googleapis.com/auth/drive.readonly',
