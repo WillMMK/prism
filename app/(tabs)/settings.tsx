@@ -11,24 +11,15 @@ import {
   FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as AuthSession from 'expo-auth-session';
+import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
 import { googleSheetsService, SheetInfo, ColumnMapping, SpreadsheetFile } from '../../src/services/googleSheets';
 import { useBudgetStore } from '../../src/store/budgetStore';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const GOOGLE_CLIENT_ID = '907648461438-2q8au98sdpogg0hiu3sc9g5o3uruhqmf.apps.googleusercontent.com';
-
-const redirectUri = AuthSession.makeRedirectUri({
-  scheme: 'budget-tracker',
-});
-
-const discovery = {
-  authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-  tokenEndpoint: 'https://oauth2.googleapis.com/token',
-  revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
-};
+// Web client ID for Expo Go
+const GOOGLE_WEB_CLIENT_ID = '907648461438-2q8au98sdpogg0hiu3sc9g5o3uruhqmf.apps.googleusercontent.com';
 
 export default function Settings() {
   const [isConnected, setIsConnected] = useState(false);
@@ -42,22 +33,14 @@ export default function Settings() {
 
   const { setSheetsConfig, setTransactions, sheetsConfig } = useBudgetStore();
 
-  // Log redirect URI for debugging
-  console.log('Redirect URI:', redirectUri);
-
-  // Set up Google OAuth with Drive scope
-  const [request, response, promptAsync] = AuthSession.useAuthRequest(
-    {
-      clientId: GOOGLE_CLIENT_ID,
-      redirectUri,
-      scopes: [
-        'https://www.googleapis.com/auth/spreadsheets.readonly',
-        'https://www.googleapis.com/auth/drive.readonly',
-      ],
-      responseType: AuthSession.ResponseType.Token,
-    },
-    discovery
-  );
+  // Set up Google OAuth with the Google provider
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    webClientId: GOOGLE_WEB_CLIENT_ID,
+    scopes: [
+      'https://www.googleapis.com/auth/spreadsheets.readonly',
+      'https://www.googleapis.com/auth/drive.readonly',
+    ],
+  });
 
   // Check for stored token on mount
   useEffect(() => {
@@ -67,8 +50,11 @@ export default function Settings() {
   // Handle OAuth response
   useEffect(() => {
     if (response?.type === 'success') {
-      const { access_token } = response.params;
-      handleAuthSuccess(access_token);
+      // Google provider returns authentication object
+      const accessToken = response.authentication?.accessToken;
+      if (accessToken) {
+        handleAuthSuccess(accessToken);
+      }
     } else if (response?.type === 'error') {
       Alert.alert('Authentication Error', response.error?.message || 'Failed to sign in');
     }
