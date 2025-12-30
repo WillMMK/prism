@@ -1,7 +1,7 @@
 name: Expo Preview Server
 
 on:
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
 
 jobs:
   expo-tunnel:
@@ -24,38 +24,52 @@ jobs:
       - name: Install ngrok
         run: npm install -g @expo/ngrok@^4.1.0
 
-      - name: Start Expo with tunnel
+      - name: Start Expo and get URL
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          CI: ""
         run: |
-          # Start expo and capture output, stripping ANSI codes
-          npx expo start --tunnel --non-interactive 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tee expo-output.log &
+          # Start expo in background
+          npx expo start --tunnel 2>&1 | tee expo.log &
+          SERVER_PID=$!
 
-          echo "Waiting for tunnel..."
-          sleep 30
+          echo "Waiting for server to start..."
+          sleep 20
+
+          # Try to get URL using expo export command or parse from ngrok
+          echo "Checking for tunnel URL..."
+
+          # Method 1: Check ngrok API directly
+          NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null | grep -oE 'https://[^"]+\.ngrok[^"]*' | head -1)
+
+          if [ -n "$NGROK_URL" ]; then
+            EXPO_URL="exp://${NGROK_URL#https://}"
+            echo ""
+            echo "========================================="
+            echo "EXPO GO URL:"
+            echo "$EXPO_URL"
+            echo "========================================="
+            echo ""
+
+            echo "## 📱 Expo Go Preview" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Paste this in Expo Go:" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "$EXPO_URL" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Or use ngrok URL:" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "$NGROK_URL" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Could not get URL from ngrok API"
+            echo "=== Expo Log ==="
+            cat expo.log
+            echo "================"
+          fi
 
           echo ""
-          echo "=== EXPO OUTPUT ==="
-          cat expo-output.log
-          echo "==================="
-          echo ""
+          echo "Server running for 60 minutes..."
 
-          # Extract any URL-like patterns
-          echo "=== FOUND URLs ==="
-          grep -oE '(exp|https?)://[^[:space:]"<>]+' expo-output.log || echo "No URLs found yet"
-          echo "==================="
-
-          # Write to summary
-          echo "## 📱 Expo Dev Server Output" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          cat expo-output.log >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-
-          echo ""
-          echo "Server running. Look for exp:// or ngrok URL above."
-          echo "Keeping alive for 60 minutes..."
-
-          # Keep alive and show new output
-          tail -f expo-output.log
+          # Keep alive
+          wait $SERVER_PID
