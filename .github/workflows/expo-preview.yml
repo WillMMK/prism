@@ -6,7 +6,7 @@ on:
 jobs:
   expo-tunnel:
     runs-on: ubuntu-latest
-    timeout-minutes: 60  # Keep alive for 1 hour
+    timeout-minutes: 60
 
     steps:
       - name: Checkout code
@@ -27,59 +27,35 @@ jobs:
       - name: Start Expo with tunnel
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          CI: ""
         run: |
-          npx expo start --tunnel 2>&1 | tee expo-output.log &
-          EXPO_PID=$!
+          # Start expo and capture output, stripping ANSI codes
+          npx expo start --tunnel --non-interactive 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tee expo-output.log &
 
-          echo "Waiting for tunnel URL..."
-          for i in {1..90}; do
-            # Try multiple URL patterns
-            TUNNEL_URL=$(grep -oE 'exp://[^[:space:]]+' expo-output.log 2>/dev/null | head -1)
-            if [ -z "$TUNNEL_URL" ]; then
-              TUNNEL_URL=$(grep -oE 'https://[a-z0-9-]+\.ngrok[^[:space:]]*' expo-output.log 2>/dev/null | head -1)
-            fi
-            if [ -z "$TUNNEL_URL" ]; then
-              TUNNEL_URL=$(grep -oE 'exp\+[^[:space:]]+' expo-output.log 2>/dev/null | head -1)
-            fi
+          echo "Waiting for tunnel..."
+          sleep 30
 
-            if [ -n "$TUNNEL_URL" ]; then
-              echo ""
-              echo "========================================="
-              echo "EXPO GO URL:"
-              echo "$TUNNEL_URL"
-              echo "========================================="
-
-              # Write to GitHub Actions Summary
-              echo "## 📱 Expo Go Preview" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "### Open in Expo Go:" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-              echo "$TUNNEL_URL" >> $GITHUB_STEP_SUMMARY
-              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "_Server will stay alive for ~60 minutes_" >> $GITHUB_STEP_SUMMARY
-
-              break
-            fi
-            echo "Waiting... ($i/90)"
-            sleep 2
-          done
-
-          # Show log contents for debugging
           echo ""
-          echo "=== Current expo-output.log ==="
+          echo "=== EXPO OUTPUT ==="
           cat expo-output.log
-          echo "==============================="
-
-          if [ -z "$TUNNEL_URL" ]; then
-            echo "WARNING: Could not extract tunnel URL automatically"
-            echo "Check the log above for the URL"
-          fi
-
-          echo ""
-          echo "Server is running. Check logs or Summary tab for the URL."
+          echo "==================="
           echo ""
 
-          # Keep the job alive
+          # Extract any URL-like patterns
+          echo "=== FOUND URLs ==="
+          grep -oE '(exp|https?)://[^[:space:]"<>]+' expo-output.log || echo "No URLs found yet"
+          echo "==================="
+
+          # Write to summary
+          echo "## 📱 Expo Dev Server Output" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat expo-output.log >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+          echo ""
+          echo "Server running. Look for exp:// or ngrok URL above."
+          echo "Keeping alive for 60 minutes..."
+
+          # Keep alive and show new output
           tail -f expo-output.log
