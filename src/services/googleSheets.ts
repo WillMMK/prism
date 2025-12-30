@@ -5,7 +5,7 @@ import { Transaction } from '../types/budget';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID';
+const GOOGLE_CLIENT_ID = '907648461438-lttve08jch0tc7639k16hill7smkbqur.apps.googleusercontent.com';
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly'];
 
 const discovery = {
