@@ -32,23 +32,44 @@ jobs:
           EXPO_PID=$!
 
           echo "Waiting for tunnel URL..."
-          for i in {1..60}; do
-            if grep -q "exp+" expo-output.log 2>/dev/null; then
+          for i in {1..90}; do
+            TUNNEL_URL=$(grep -o 'exp+[^[:space:]]*' expo-output.log 2>/dev/null | head -1)
+            if [ -n "$TUNNEL_URL" ]; then
               echo ""
               echo "========================================="
-              echo "EXPO GO URL (scan with Expo Go app):"
+              echo "EXPO GO URL:"
+              echo "$TUNNEL_URL"
               echo "========================================="
-              grep -o 'exp+[^[:space:]]*' expo-output.log | head -1
-              echo "========================================="
-              echo ""
+
+              # Write to GitHub Actions Summary (visible on workflow page)
+              echo "## 📱 Expo Go Preview" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### Scan this URL in Expo Go:" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              echo "$TUNNEL_URL" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**Or open directly:** [Open in Expo Go](https://expo.dev/go?url=$TUNNEL_URL)" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "_Server will stay alive for ~60 minutes_" >> $GITHUB_STEP_SUMMARY
+
               break
             fi
+            echo "Waiting... ($i/90)"
             sleep 2
           done
 
-          echo "Server is running. Check the URL above."
+          if [ -z "$TUNNEL_URL" ]; then
+            echo "ERROR: Could not get tunnel URL"
+            cat expo-output.log
+            exit 1
+          fi
+
+          echo ""
+          echo "Server is running. Check the Summary tab for the URL."
           echo "This workflow will stay alive for ~60 minutes."
           echo ""
 
-          # Keep the job alive
+          # Keep the job alive - show live logs
           tail -f expo-output.log
