@@ -18,7 +18,7 @@ import { useBudgetStore } from '../../src/store/budgetStore';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const GOOGLE_CLIENT_ID = '907648461438-lttve08jch0tc7639k16hill7smkbqur.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = '907648461438-2q8au98sdpogg0hiu3sc9g5o3uruhqmf.apps.googleusercontent.com';
 
 const discovery = {
   authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
