@@ -1,0 +1,39 @@
+{
+  "name": "budget-tracker",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "build:ios": "eas build --platform ios --profile production",
+    "build:preview": "eas build --platform ios --profile preview",
+    "submit:ios": "eas submit --platform ios"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.0.3",
+    "@react-navigation/native": "^7.1.26",
+    "expo": "~54.0.30",
+    "expo-auth-session": "^7.0.10",
+    "expo-constants": "^18.0.12",
+    "expo-linking": "^8.0.11",
+    "expo-router": "^6.0.21",
+    "expo-secure-store": "^15.0.8",
+    "expo-status-bar": "~3.0.9",
+    "expo-web-browser": "^15.0.10",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-chart-kit": "^6.12.0",
+    "react-native-gesture-handler": "^2.30.0",
+    "react-native-safe-area-context": "^5.6.2",
+    "react-native-screens": "^4.19.0",
+    "react-native-svg": "^15.15.1",
+    "zustand": "^5.0.9"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.0",
+    "typescript": "~5.9.2"
+  },
+  "private": true
+}
