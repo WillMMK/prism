@@ -25,51 +25,65 @@ jobs:
         run: npm install -g @expo/ngrok@^4.1.0
 
       - name: Start Expo and get URL
+        id: expo
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           # Start expo in background
           npx expo start --tunnel 2>&1 | tee expo.log &
-          SERVER_PID=$!
 
           echo "Waiting for server to start..."
-          sleep 20
+          sleep 25
 
-          # Try to get URL using expo export command or parse from ngrok
-          echo "Checking for tunnel URL..."
-
-          # Method 1: Check ngrok API directly
-          NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null | grep -oE 'https://[^"]+\.ngrok[^"]*' | head -1)
+          # Get URL from ngrok API
+          for i in {1..10}; do
+            NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null | grep -oE 'https://[^"]+' | head -1)
+            if [ -n "$NGROK_URL" ]; then
+              break
+            fi
+            echo "Attempt $i: waiting for ngrok..."
+            sleep 3
+          done
 
           if [ -n "$NGROK_URL" ]; then
             EXPO_URL="exp://${NGROK_URL#https://}"
-            echo ""
-            echo "========================================="
-            echo "EXPO GO URL:"
-            echo "$EXPO_URL"
-            echo "========================================="
-            echo ""
+            echo "EXPO_URL=$EXPO_URL" >> $GITHUB_OUTPUT
+            echo "NGROK_URL=$NGROK_URL" >> $GITHUB_OUTPUT
 
+            # Save to file for artifact
+            echo "$EXPO_URL" > expo-url.txt
+            echo "$NGROK_URL" >> expo-url.txt
+
+            echo ""
+            echo "========================================="
+            echo "EXPO GO URL: $EXPO_URL"
+            echo "========================================="
+
+            # Write to summary
             echo "## 📱 Expo Go Preview" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Paste this in Expo Go:" >> $GITHUB_STEP_SUMMARY
+            echo "### Paste in Expo Go:" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "$EXPO_URL" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Or use ngrok URL:" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            echo "$NGROK_URL" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           else
-            echo "Could not get URL from ngrok API"
-            echo "=== Expo Log ==="
+            echo "Could not get ngrok URL"
+            echo "=== Expo log ==="
             cat expo.log
-            echo "================"
+            echo "NO_URL=true" >> $GITHUB_OUTPUT
+            echo "Check expo.log" > expo-url.txt
           fi
 
-          echo ""
-          echo "Server running for 60 minutes..."
+      - name: Upload URL
+        uses: actions/upload-artifact@v4
+        with:
+          name: expo-url
+          path: expo-url.txt
+          retention-days: 1
 
-          # Keep alive
-          wait $SERVER_PID
+      - name: Keep server alive
+        if: steps.expo.outputs.EXPO_URL != ''
+        run: |
+          echo "Server running at: ${{ steps.expo.outputs.EXPO_URL }}"
+          echo "Keeping alive for 55 more minutes..."
+          sleep 3300
