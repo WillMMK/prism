@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import { xlsxParser, SheetData, ColumnMapping, ParsedFile, SummaryMapping, DataFormat } from '../../src/services/xlsxParser';
+import { xlsxParser, SheetData, ColumnMapping, ParsedFile, SummaryMapping, MixedSheetAnalysis, DataFormat } from '../../src/services/xlsxParser';
 import { useBudgetStore } from '../../src/store/budgetStore';
 
 export default function Settings() {
@@ -46,7 +46,18 @@ export default function Settings() {
         setSelectedSheets(parsed.sheets.map(s => s.name));
 
         // Show detection results
-        if (parsed.detectedFormat === 'summary' && parsed.summaryMapping) {
+        if (parsed.detectedFormat === 'mixed' && parsed.mixedAnalysis) {
+          const ma = parsed.mixedAnalysis;
+          Alert.alert(
+            'Mixed Format Detected',
+            `Found ${parsed.sheets.length} sheet(s)\n\n` +
+            `Format: ${ma.sheetType === 'expense' ? 'Expense Sheet' : ma.sheetType === 'income' ? 'Income Sheet' : 'Mixed'}\n\n` +
+            `Summary rows: ${ma.summaryRowIndices.length} (will skip)\n` +
+            `Detail rows: ${ma.detailRowIndices.length} (will import)\n` +
+            `Total rows: ${ma.totalRowIndices.length} (will skip)\n\n` +
+            `Categories: ${ma.categoryColumns.map(c => c.name).slice(0, 5).join(', ')}${ma.categoryColumns.length > 5 ? '...' : ''}`
+          );
+        } else if (parsed.detectedFormat === 'summary' && parsed.summaryMapping) {
           const sm = parsed.summaryMapping;
           Alert.alert(
             'Summary Format Detected',
@@ -144,6 +155,57 @@ export default function Settings() {
       ]
     );
   };
+
+  // Render mixed format schema
+  const renderMixedSchema = (analysis: MixedSheetAnalysis) => (
+    <View style={styles.card}>
+      <View style={styles.formatBadge}>
+        <Ionicons name="git-branch" size={16} color="#FF9800" />
+        <Text style={styles.formatText}>
+          {analysis.sheetType === 'expense' ? 'Expense Sheet' :
+           analysis.sheetType === 'income' ? 'Income Sheet' : 'Mixed Sheet'}
+        </Text>
+      </View>
+
+      <View style={styles.categorySection}>
+        <Text style={styles.categoryTitle}>
+          Row Analysis
+        </Text>
+        <View style={styles.rowStats}>
+          <View style={styles.statBox}>
+            <Text style={styles.statNumber}>{analysis.detailRowIndices.length}</Text>
+            <Text style={styles.statDesc}>Detail rows (importing)</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={[styles.statNumber, { color: '#8892b0' }]}>{analysis.summaryRowIndices.length}</Text>
+            <Text style={styles.statDesc}>Summary rows (skipping)</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={[styles.statNumber, { color: '#8892b0' }]}>{analysis.totalRowIndices.length}</Text>
+            <Text style={styles.statDesc}>Total rows (skipping)</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.categorySection}>
+        <Text style={styles.categoryTitle}>
+          Categories ({analysis.categoryColumns.length})
+        </Text>
+        <View style={styles.categoryTags}>
+          {analysis.categoryColumns.map((cat, idx) => (
+            <View key={idx} style={[styles.tag, styles.expenseTag]}>
+              <Text style={styles.tagText}>{cat.name}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      <Text style={styles.hint}>
+        Negative values = Expense, Positive values = Income{'\n'}
+        Only daily detail rows will be imported (no double counting)
+      </Text>
+    </View>
+  );
 
   // Render summary format schema
   const renderSummarySchema = (mapping: SummaryMapping) => (
@@ -336,7 +398,9 @@ export default function Settings() {
       {parsedFile && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Detected Schema</Text>
-          {parsedFile.detectedFormat === 'summary' && parsedFile.summaryMapping
+          {parsedFile.detectedFormat === 'mixed' && parsedFile.mixedAnalysis
+            ? renderMixedSchema(parsedFile.mixedAnalysis)
+            : parsedFile.detectedFormat === 'summary' && parsedFile.summaryMapping
             ? renderSummarySchema(parsedFile.summaryMapping)
             : renderTransactionSchema(parsedFile.inferredMapping)}
         </View>
@@ -571,6 +635,26 @@ const styles = StyleSheet.create({
     color: '#64B5F6',
     fontSize: 11,
     fontStyle: 'italic',
+  },
+  rowStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 8,
+  },
+  statBox: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statNumber: {
+    color: '#4CAF50',
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  statDesc: {
+    color: '#8892b0',
+    fontSize: 10,
+    textAlign: 'center',
+    marginTop: 4,
   },
   schemaRow: {
     flexDirection: 'row',

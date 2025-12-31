@@ -25,12 +25,23 @@ export interface SummaryMapping {
   totalColumns: { index: number; name: string; type: 'expense' | 'income' | 'net'; sumOf: number[] }[];
 }
 
-export type DataFormat = 'transaction' | 'summary';
+// New: Mixed format with summary rows and detail rows
+export interface MixedSheetAnalysis {
+  dateColumnIndex: number;
+  categoryColumns: { index: number; name: string }[];
+  summaryRowIndices: number[];  // Rows that are monthly summaries
+  detailRowIndices: number[];   // Rows that are daily details
+  totalRowIndices: number[];    // Rows that are grand totals (skip)
+  sheetType: 'expense' | 'income' | 'mixed';
+}
+
+export type DataFormat = 'transaction' | 'summary' | 'mixed';
 
 export interface ParsedFile {
   sheets: SheetData[];
   inferredMapping: ColumnMapping;
   summaryMapping: SummaryMapping | null;
+  mixedAnalysis: MixedSheetAnalysis | null;
   detectedFormat: DataFormat;
 }
 
@@ -106,9 +117,12 @@ class XLSXParserService {
     };
 
     let summaryMapping: SummaryMapping | null = null;
+    let mixedAnalysis: MixedSheetAnalysis | null = null;
 
     if (firstSheet) {
-      if (detectedFormat === 'summary') {
+      if (detectedFormat === 'mixed') {
+        mixedAnalysis = this.analyzeMixedSheet(firstSheet);
+      } else if (detectedFormat === 'summary') {
         summaryMapping = this.inferSummaryMapping(firstSheet.headers, firstSheet.rows);
       } else {
         inferredMapping = this.inferSchema(firstSheet.headers, firstSheet.rows);
@@ -116,11 +130,22 @@ class XLSXParserService {
       inferredMapping.headers = firstSheet.headers;
     }
 
-    return { sheets, inferredMapping, summaryMapping, detectedFormat };
+    return { sheets, inferredMapping, summaryMapping, mixedAnalysis, detectedFormat };
   }
 
   detectFormat(sheet: SheetData): DataFormat {
     const headers = sheet.headers.map(h => h.toLowerCase().trim());
+
+    // Check if this looks like a mixed format (has dates in first column with mixed formats)
+    const firstColValues = sheet.rows.map(r => r[0] || '');
+    const dateFormats = this.analyzeFirstColumnDates(firstColValues);
+
+    // Mixed format: has both monthly summaries (YYYY/M) and daily details (DD/MM/YYYY)
+    if (dateFormats.hasYearFirstDates && dateFormats.hasDayFirstDates) {
+      return 'mixed';
+    }
+
+    // Check for YEAR/MONTH columns (pure summary format)
     const hasYearMonth = headers.some(h => h === 'year') && headers.some(h => h === 'month');
     const numericColumns = this.countNumericColumns(headers, sheet.rows);
     const categoryColumns = headers.filter(h =>
@@ -131,11 +156,210 @@ class XLSXParserService {
       return 'summary';
     }
 
+    // Many category columns = summary format
     if (numericColumns >= 5 && categoryColumns >= 3) {
       return 'summary';
     }
 
+    // Check if first column has mixed date formats indicating mixed sheet
+    if (dateFormats.hasYearFirstDates && categoryColumns >= 3) {
+      return 'mixed';
+    }
+
     return 'transaction';
+  }
+
+  // Analyze date formats in first column
+  private analyzeFirstColumnDates(values: string[]): {
+    hasYearFirstDates: boolean;
+    hasDayFirstDates: boolean;
+    hasEmptyDates: boolean;
+  } {
+    let yearFirst = 0;  // YYYY/M/D or YYYY/M
+    let dayFirst = 0;   // DD/MM/YYYY
+    let empty = 0;
+
+    for (const val of values) {
+      const trimmed = val.trim();
+      if (!trimmed) {
+        empty++;
+        continue;
+      }
+
+      // Year-first format: 2025/1/1 or 2025/1
+      if (/^\d{4}[\/\-]\d{1,2}([\/\-]\d{1,2})?$/.test(trimmed)) {
+        yearFirst++;
+      }
+      // Day-first format: 01/01/2025 or 1/1/2025
+      else if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(trimmed)) {
+        dayFirst++;
+      }
+    }
+
+    return {
+      hasYearFirstDates: yearFirst >= 3,
+      hasDayFirstDates: dayFirst >= 3,
+      hasEmptyDates: empty > 0,
+    };
+  }
+
+  // Analyze mixed sheet to separate summary rows from detail rows
+  analyzeMixedSheet(sheet: SheetData): MixedSheetAnalysis {
+    const analysis: MixedSheetAnalysis = {
+      dateColumnIndex: 0,  // Assume first column is date
+      categoryColumns: [],
+      summaryRowIndices: [],
+      detailRowIndices: [],
+      totalRowIndices: [],
+      sheetType: 'mixed',
+    };
+
+    // Find category columns (numeric columns with category-like headers)
+    sheet.headers.forEach((header, index) => {
+      if (index === 0) return; // Skip date column
+      if (!header.trim()) return;
+
+      const lower = header.toLowerCase().trim();
+      // Skip "Expense", "Income", "Net Profit" total columns
+      if (lower === 'expense' || lower === 'expenses' ||
+          lower === 'income' || lower === 'net profit' ||
+          lower === 'net' || lower === 'total' || lower === 'balance') {
+        return;
+      }
+
+      const sampleValues = sheet.rows.slice(0, 20).map(row => row[index] || '');
+      if (this.looksLikeAmount(sampleValues)) {
+        analysis.categoryColumns.push({ index, name: header });
+      }
+    });
+
+    // Classify each row
+    sheet.rows.forEach((row, rowIndex) => {
+      const dateVal = row[0]?.trim() || '';
+
+      // Empty date = total row (grand total at top)
+      if (!dateVal) {
+        analysis.totalRowIndices.push(rowIndex);
+        return;
+      }
+
+      // Year-first format (2025/1/1, 2025/2) = monthly summary
+      if (/^\d{4}[\/\-]\d{1,2}([\/\-]\d{1,2})?$/.test(dateVal)) {
+        analysis.summaryRowIndices.push(rowIndex);
+        return;
+      }
+
+      // Day-first format (01/01/2025) = daily detail
+      if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(dateVal)) {
+        analysis.detailRowIndices.push(rowIndex);
+        return;
+      }
+
+      // Excel serial date = likely daily detail
+      const numDate = parseFloat(dateVal);
+      if (!isNaN(numDate) && numDate > 30000 && numDate < 100000) {
+        analysis.detailRowIndices.push(rowIndex);
+        return;
+      }
+
+      // Default to detail
+      analysis.detailRowIndices.push(rowIndex);
+    });
+
+    // Detect sheet type based on values
+    // If most values are negative, it's expense-focused
+    // If most values are positive, it's income-focused
+    let negativeCount = 0;
+    let positiveCount = 0;
+
+    for (const rowIdx of analysis.detailRowIndices.slice(0, 50)) {
+      const row = sheet.rows[rowIdx];
+      for (const col of analysis.categoryColumns) {
+        const val = this.parseAmount(row[col.index]);
+        if (val < 0) negativeCount++;
+        if (val > 0) positiveCount++;
+      }
+    }
+
+    if (negativeCount > positiveCount * 2) {
+      analysis.sheetType = 'expense';
+    } else if (positiveCount > negativeCount * 2) {
+      analysis.sheetType = 'income';
+    }
+
+    return analysis;
+  }
+
+  // Parse mixed format sheet - only import detail rows
+  parseMixedSheet(sheet: SheetData, analysis: MixedSheetAnalysis): Transaction[] {
+    const transactions: Transaction[] = [];
+
+    // Only process detail rows (skip summary and total rows)
+    for (const rowIndex of analysis.detailRowIndices) {
+      const row = sheet.rows[rowIndex];
+      const dateStr = this.parseDateFromFirstColumn(row[0] || '');
+
+      // Process each category column
+      for (const col of analysis.categoryColumns) {
+        const value = this.parseAmount(row[col.index]);
+        if (value === 0) continue; // Skip empty cells
+
+        // Determine type by sign: negative = expense, positive = income
+        const type: 'expense' | 'income' = value < 0 ? 'expense' : 'income';
+
+        transactions.push({
+          id: `xlsx_${rowIndex}_${col.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          date: dateStr,
+          description: col.name,
+          category: col.name,
+          amount: Math.abs(value),
+          type,
+        });
+      }
+    }
+
+    return transactions;
+  }
+
+  // Parse date from first column (handles various formats)
+  private parseDateFromFirstColumn(dateStr: string): string {
+    if (!dateStr) return new Date().toISOString().split('T')[0];
+
+    const trimmed = dateStr.trim();
+
+    // Excel serial date
+    const numDate = parseFloat(trimmed);
+    if (!isNaN(numDate) && numDate > 30000 && numDate < 100000) {
+      const excelEpoch = new Date(1899, 11, 30);
+      const date = new Date(excelEpoch.getTime() + numDate * 24 * 60 * 60 * 1000);
+      return date.toISOString().split('T')[0];
+    }
+
+    // Year-first: 2025/1/1 or 2025/1
+    const yearFirst = trimmed.match(/^(\d{4})[\/\-](\d{1,2})([\/\-](\d{1,2}))?$/);
+    if (yearFirst) {
+      const year = yearFirst[1];
+      const month = yearFirst[2].padStart(2, '0');
+      const day = yearFirst[4]?.padStart(2, '0') || '01';
+      return `${year}-${month}-${day}`;
+    }
+
+    // Day-first: 01/01/2025 or 1/1/2025
+    const dayFirst = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (dayFirst) {
+      const day = dayFirst[1].padStart(2, '0');
+      const month = dayFirst[2].padStart(2, '0');
+      const year = dayFirst[3];
+      return `${year}-${month}-${day}`;
+    }
+
+    // Try standard Date parsing
+    const date = new Date(trimmed);
+    if (!isNaN(date.getTime())) {
+      return date.toISOString().split('T')[0];
+    }
+
+    return new Date().toISOString().split('T')[0];
   }
 
   private countNumericColumns(headers: string[], rows: string[][]): number {
@@ -162,7 +386,7 @@ class XLSXParserService {
     return INCOME_KEYWORDS.some(kw => lower === kw || lower.includes(kw));
   }
 
-  // Smart summary mapping that analyzes data to find sum columns
+  // For summary format (YEAR/MONTH columns)
   inferSummaryMapping(headers: string[], rows: string[][]): SummaryMapping {
     const mapping: SummaryMapping = {
       yearColumn: null,
@@ -172,7 +396,6 @@ class XLSXParserService {
       totalColumns: [],
     };
 
-    // Step 1: Find year/month columns and identify all numeric columns
     const numericColumns: number[] = [];
 
     headers.forEach((header, index) => {
@@ -195,18 +418,13 @@ class XLSXParserService {
       }
     });
 
-    // Step 2: Analyze data to find which columns are sums of other columns
+    // Detect sum columns
     const sumColumns = this.detectSumColumns(headers, rows, numericColumns);
-
-    // Step 3: Columns that are NOT sum columns are the actual categories
     const categoryColumns = numericColumns.filter(idx => !sumColumns.has(idx));
 
-    // Step 4: Categorize each non-sum column as expense or income
     categoryColumns.forEach(index => {
       const header = headers[index];
-      const lower = header.toLowerCase().trim();
 
-      // Check if this column is part of an expense sum or income sum
       let isPartOfExpenseSum = false;
       let isPartOfIncomeSum = false;
 
@@ -221,7 +439,6 @@ class XLSXParserService {
         }
       });
 
-      // Determine type based on what sum it belongs to, then name hints
       if (isPartOfExpenseSum) {
         mapping.expenseCategories.push({ index, name: header });
       } else if (isPartOfIncomeSum) {
@@ -231,7 +448,6 @@ class XLSXParserService {
       } else if (this.isIncomeCategory(header)) {
         mapping.incomeCategories.push({ index, name: header });
       } else {
-        // Unknown - use heuristics
         const looksLikePersonName = /^[A-Z][a-z]+$/.test(header.trim());
         const avgValue = this.getAverageValue(rows.slice(0, 10).map(r => r[index] || ''));
 
@@ -243,7 +459,6 @@ class XLSXParserService {
       }
     });
 
-    // Step 5: Add detected sum columns to totalColumns
     sumColumns.forEach((sumOf, index) => {
       const header = headers[index];
       const lower = header.toLowerCase().trim();
@@ -261,31 +476,21 @@ class XLSXParserService {
     return mapping;
   }
 
-  // Detect which columns are sums of other columns by analyzing data
   private detectSumColumns(
     headers: string[],
     rows: string[][],
     numericColumns: number[]
   ): Map<number, number[]> {
     const sumColumns = new Map<number, number[]>();
-    const tolerance = 0.01; // Allow 1% tolerance for floating point
+    const tolerance = 0.01;
 
-    // For each numeric column, check if it's approximately equal to sum of some other columns
     numericColumns.forEach(potentialSumCol => {
-      // Try to find a subset of other columns that sum to this column
       const otherColumns = numericColumns.filter(c => c !== potentialSumCol);
-
-      // Get values for potential sum column
       const sumValues = rows.map(row => this.parseAmount(row[potentialSumCol]));
-
-      // Skip columns with all zeros or very small values
       const nonZeroCount = sumValues.filter(v => Math.abs(v) > 0.01).length;
       if (nonZeroCount < Math.min(3, rows.length * 0.3)) return;
 
-      // Try different subsets - start with finding consecutive column groups
-      // that might sum to this column
       const foundSubset = this.findSumSubset(rows, potentialSumCol, otherColumns, tolerance);
-
       if (foundSubset && foundSubset.length >= 2) {
         sumColumns.set(potentialSumCol, foundSubset);
       }
@@ -294,7 +499,6 @@ class XLSXParserService {
     return sumColumns;
   }
 
-  // Find a subset of columns that sum to the target column
   private findSumSubset(
     rows: string[][],
     targetCol: number,
@@ -302,22 +506,14 @@ class XLSXParserService {
     tolerance: number
   ): number[] | null {
     const sampleRows = rows.slice(0, Math.min(10, rows.length));
-
-    // Try finding consecutive groups that sum correctly
-    // This is a greedy approach - try adding columns one by one
-
-    // Sort candidates by their position (consecutive columns often belong together)
     const sortedCandidates = [...candidateCols].sort((a, b) => a - b);
 
-    // Try to find a group of columns that sums to target
     for (let startIdx = 0; startIdx < sortedCandidates.length; startIdx++) {
       let currentSubset: number[] = [];
-      let matchCount = 0;
 
       for (let endIdx = startIdx; endIdx < sortedCandidates.length; endIdx++) {
         currentSubset.push(sortedCandidates[endIdx]);
 
-        // Check if current subset sums to target across all sample rows
         let allMatch = true;
         let validRows = 0;
 
@@ -328,14 +524,9 @@ class XLSXParserService {
             0
           );
 
-          // Skip rows where both are zero (empty data)
-          if (Math.abs(targetVal) < 0.01 && Math.abs(subsetSum) < 0.01) {
-            continue;
-          }
-
+          if (Math.abs(targetVal) < 0.01 && Math.abs(subsetSum) < 0.01) continue;
           validRows++;
 
-          // Check if they match within tolerance
           const diff = Math.abs(targetVal - subsetSum);
           const maxVal = Math.max(Math.abs(targetVal), Math.abs(subsetSum), 1);
 
@@ -345,76 +536,13 @@ class XLSXParserService {
           }
         }
 
-        // If we have enough valid rows and all match, we found it!
         if (allMatch && validRows >= Math.min(3, sampleRows.length * 0.5)) {
-          if (currentSubset.length >= 2) {
-            return currentSubset;
-          }
-        }
-      }
-    }
-
-    // Also try non-consecutive combinations for smaller sets
-    if (candidateCols.length <= 10) {
-      // Try all pairs
-      for (let i = 0; i < candidateCols.length; i++) {
-        for (let j = i + 1; j < candidateCols.length; j++) {
-          const subset = [candidateCols[i], candidateCols[j]];
-          if (this.checkSubsetMatch(rows, targetCol, subset, tolerance)) {
-            return subset;
-          }
-        }
-      }
-
-      // Try triples
-      for (let i = 0; i < candidateCols.length; i++) {
-        for (let j = i + 1; j < candidateCols.length; j++) {
-          for (let k = j + 1; k < candidateCols.length; k++) {
-            const subset = [candidateCols[i], candidateCols[j], candidateCols[k]];
-            if (this.checkSubsetMatch(rows, targetCol, subset, tolerance)) {
-              return subset;
-            }
-          }
+          if (currentSubset.length >= 2) return currentSubset;
         }
       }
     }
 
     return null;
-  }
-
-  private checkSubsetMatch(
-    rows: string[][],
-    targetCol: number,
-    subset: number[],
-    tolerance: number
-  ): boolean {
-    const sampleRows = rows.slice(0, Math.min(10, rows.length));
-    let validRows = 0;
-    let matchCount = 0;
-
-    for (const row of sampleRows) {
-      const targetVal = this.parseAmount(row[targetCol]);
-      const subsetSum = subset.reduce(
-        (sum, col) => sum + this.parseAmount(row[col]),
-        0
-      );
-
-      if (Math.abs(targetVal) < 0.01 && Math.abs(subsetSum) < 0.01) {
-        continue;
-      }
-
-      validRows++;
-
-      const diff = Math.abs(targetVal - subsetSum);
-      const maxVal = Math.max(Math.abs(targetVal), Math.abs(subsetSum), 1);
-
-      if (diff / maxVal <= tolerance) {
-        matchCount++;
-      }
-    }
-
-    // At least 80% of valid rows should match
-    return validRows >= 2 && matchCount >= validRows * 0.8;
   }
 
   private getAverageValue(values: string[]): number {
@@ -440,13 +568,11 @@ class XLSXParserService {
         year = parseInt(row[mapping.yearColumn]) || year;
       }
       if (mapping.monthColumn !== null) {
-        const monthVal = row[mapping.monthColumn];
-        month = this.parseMonth(monthVal);
+        month = this.parseMonth(row[mapping.monthColumn]);
       }
 
       const dateStr = `${year}-${String(month).padStart(2, '0')}-01`;
 
-      // Create transactions for expense categories only (not sum columns)
       mapping.expenseCategories.forEach(cat => {
         const value = this.parseAmount(row[cat.index]);
         if (value !== 0) {
@@ -461,7 +587,6 @@ class XLSXParserService {
         }
       });
 
-      // Create transactions for income categories only (not sum columns)
       mapping.incomeCategories.forEach(cat => {
         const value = this.parseAmount(row[cat.index]);
         if (value !== 0) {
@@ -484,27 +609,18 @@ class XLSXParserService {
     if (!monthVal) return 1;
 
     const num = parseInt(monthVal);
-    if (!isNaN(num) && num >= 1 && num <= 12) {
-      return num;
-    }
+    if (!isNaN(num) && num >= 1 && num <= 12) return num;
 
     const monthNames: { [key: string]: number } = {
-      'jan': 1, 'january': 1,
-      'feb': 2, 'february': 2,
-      'mar': 3, 'march': 3,
-      'apr': 4, 'april': 4,
-      'may': 5,
-      'jun': 6, 'june': 6,
-      'jul': 7, 'july': 7,
-      'aug': 8, 'august': 8,
-      'sep': 9, 'september': 9,
-      'oct': 10, 'october': 10,
-      'nov': 11, 'november': 11,
+      'jan': 1, 'january': 1, 'feb': 2, 'february': 2,
+      'mar': 3, 'march': 3, 'apr': 4, 'april': 4,
+      'may': 5, 'jun': 6, 'june': 6, 'jul': 7, 'july': 7,
+      'aug': 8, 'august': 8, 'sep': 9, 'september': 9,
+      'oct': 10, 'october': 10, 'nov': 11, 'november': 11,
       'dec': 12, 'december': 12,
     };
 
-    const lower = monthVal.toLowerCase().trim();
-    return monthNames[lower] || 1;
+    return monthNames[monthVal.toLowerCase().trim()] || 1;
   }
 
   private parseAmount(val: string): number {
@@ -633,7 +749,7 @@ class XLSXParserService {
         amount = Math.abs(amount);
       }
 
-      const parsedDate = this.parseDate(dateVal);
+      const parsedDate = this.parseDateFromFirstColumn(dateVal);
 
       return {
         id: `xlsx_${index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -643,48 +759,32 @@ class XLSXParserService {
         amount,
         type,
       };
-    }).filter(tx => tx.date || tx.amount !== 0);
+    }).filter(tx => tx.amount !== 0);
   }
 
-  private parseDate(dateStr: string): string {
-    if (!dateStr) return new Date().toISOString().split('T')[0];
-
-    const numDate = parseFloat(dateStr);
-    if (!isNaN(numDate) && numDate > 30000 && numDate < 100000) {
-      const excelEpoch = new Date(1899, 11, 30);
-      const date = new Date(excelEpoch.getTime() + numDate * 24 * 60 * 60 * 1000);
-      return date.toISOString().split('T')[0];
-    }
-
-    const date = new Date(dateStr);
-    if (!isNaN(date.getTime())) {
-      return date.toISOString().split('T')[0];
-    }
-
-    const ddmmyyyy = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-    if (ddmmyyyy) {
-      const [, day, month, year] = ddmmyyyy;
-      const fullYear = year.length === 2 ? `20${year}` : year;
-      return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-    }
-
-    return new Date().toISOString().split('T')[0];
-  }
-
+  // Main method to parse all selected sheets
   parseAllSheets(parsedFile: ParsedFile, selectedSheets: string[]): Transaction[] {
     const allTransactions: Transaction[] = [];
 
     for (const sheet of parsedFile.sheets) {
       if (selectedSheets.includes(sheet.name)) {
-        if (parsedFile.detectedFormat === 'summary' && parsedFile.summaryMapping) {
-          const sheetMapping = this.inferSummaryMapping(sheet.headers, sheet.rows);
-          const transactions = this.parseSummaryTransactions(sheet, sheetMapping);
-          allTransactions.push(...transactions);
+        let transactions: Transaction[] = [];
+
+        // Re-analyze each sheet individually
+        const format = this.detectFormat(sheet);
+
+        if (format === 'mixed') {
+          const analysis = this.analyzeMixedSheet(sheet);
+          transactions = this.parseMixedSheet(sheet, analysis);
+        } else if (format === 'summary') {
+          const mapping = this.inferSummaryMapping(sheet.headers, sheet.rows);
+          transactions = this.parseSummaryTransactions(sheet, mapping);
         } else {
           const mapping = this.inferSchema(sheet.headers, sheet.rows);
-          const transactions = this.parseTransactions(sheet, mapping);
-          allTransactions.push(...transactions);
+          transactions = this.parseTransactions(sheet, mapping);
         }
+
+        allTransactions.push(...transactions);
       }
     }
 
