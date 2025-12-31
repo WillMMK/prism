@@ -89,6 +89,27 @@ function isAggregateColumn(header: string): boolean {
   return AGGREGATE_COLUMN_NAMES.includes(lower);
 }
 
+// Detect sheet type from sheet name
+function detectSheetTypeFromName(sheetName: string): 'expense' | 'income' | null {
+  const lower = sheetName.toLowerCase().trim();
+
+  // Check for expense sheet names
+  if (lower === 'expense' || lower === 'expenses' ||
+      lower.includes('expense') || lower.includes('spending') ||
+      lower.includes('cost') || lower.includes('payment')) {
+    return 'expense';
+  }
+
+  // Check for income sheet names
+  if (lower === 'income' || lower === 'incomes' ||
+      lower.includes('income') || lower.includes('earning') ||
+      lower.includes('revenue') || lower.includes('salary')) {
+    return 'income';
+  }
+
+  return null;
+}
+
 class XLSXParserService {
   async parseFile(fileUri: string): Promise<ParsedFile> {
     const base64 = await FileSystem.readAsStringAsync(fileUri, {
@@ -300,7 +321,11 @@ class XLSXParserService {
   }
 
   // Parse mixed format sheet - only import detail rows
-  parseMixedSheet(sheet: SheetData, analysis: MixedSheetAnalysis): Transaction[] {
+  parseMixedSheet(
+    sheet: SheetData,
+    analysis: MixedSheetAnalysis,
+    sheetTypeOverride?: 'expense' | 'income' | null
+  ): Transaction[] {
     const transactions: Transaction[] = [];
 
     // Only process detail rows (skip summary and total rows)
@@ -313,8 +338,13 @@ class XLSXParserService {
         const value = this.parseAmount(row[col.index]);
         if (value === 0) continue; // Skip empty cells
 
-        // Determine type by sign: negative = expense, positive = income
-        const type: 'expense' | 'income' = value < 0 ? 'expense' : 'income';
+        // Use sheet name override if available, otherwise fall back to sign-based detection
+        let type: 'expense' | 'income';
+        if (sheetTypeOverride) {
+          type = sheetTypeOverride;
+        } else {
+          type = value < 0 ? 'expense' : 'income';
+        }
 
         transactions.push({
           id: `xlsx_${rowIndex}_${col.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -617,7 +647,8 @@ class XLSXParserService {
 
   parseSummaryTransactions(
     sheetData: SheetData,
-    mapping: SummaryMapping
+    mapping: SummaryMapping,
+    sheetTypeOverride?: 'expense' | 'income' | null
   ): Transaction[] {
     const transactions: Transaction[] = [];
     const dateColumn = (mapping as any).dateColumn as number | undefined;
@@ -651,33 +682,68 @@ class XLSXParserService {
         }
       }
 
-      mapping.expenseCategories.forEach(cat => {
-        const value = this.parseAmount(row[cat.index]);
-        if (value !== 0) {
-          transactions.push({
-            id: `xlsx_exp_${rowIndex}_${cat.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-            date: dateStr,
-            description: cat.name,
-            category: cat.name,
-            amount: Math.abs(value),
-            type: 'expense',
-          });
-        }
-      });
+      // If sheet name indicates expense, treat all categories as expense
+      // If sheet name indicates income, treat all categories as income
+      if (sheetTypeOverride === 'expense') {
+        // All categories in this sheet are expenses
+        [...mapping.expenseCategories, ...mapping.incomeCategories].forEach(cat => {
+          const value = this.parseAmount(row[cat.index]);
+          if (value !== 0) {
+            transactions.push({
+              id: `xlsx_exp_${rowIndex}_${cat.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+              date: dateStr,
+              description: cat.name,
+              category: cat.name,
+              amount: Math.abs(value),
+              type: 'expense',
+            });
+          }
+        });
+      } else if (sheetTypeOverride === 'income') {
+        // All categories in this sheet are income
+        [...mapping.expenseCategories, ...mapping.incomeCategories].forEach(cat => {
+          const value = this.parseAmount(row[cat.index]);
+          if (value !== 0) {
+            transactions.push({
+              id: `xlsx_inc_${rowIndex}_${cat.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+              date: dateStr,
+              description: cat.name,
+              category: cat.name,
+              amount: Math.abs(value),
+              type: 'income',
+            });
+          }
+        });
+      } else {
+        // No sheet name override - use inferred categories
+        mapping.expenseCategories.forEach(cat => {
+          const value = this.parseAmount(row[cat.index]);
+          if (value !== 0) {
+            transactions.push({
+              id: `xlsx_exp_${rowIndex}_${cat.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+              date: dateStr,
+              description: cat.name,
+              category: cat.name,
+              amount: Math.abs(value),
+              type: 'expense',
+            });
+          }
+        });
 
-      mapping.incomeCategories.forEach(cat => {
-        const value = this.parseAmount(row[cat.index]);
-        if (value !== 0) {
-          transactions.push({
-            id: `xlsx_inc_${rowIndex}_${cat.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-            date: dateStr,
-            description: cat.name,
-            category: cat.name,
-            amount: Math.abs(value),
-            type: 'income',
-          });
-        }
-      });
+        mapping.incomeCategories.forEach(cat => {
+          const value = this.parseAmount(row[cat.index]);
+          if (value !== 0) {
+            transactions.push({
+              id: `xlsx_inc_${rowIndex}_${cat.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+              date: dateStr,
+              description: cat.name,
+              category: cat.name,
+              amount: Math.abs(value),
+              type: 'income',
+            });
+          }
+        });
+      }
     });
 
     return transactions;
@@ -805,7 +871,8 @@ class XLSXParserService {
 
   parseTransactions(
     sheetData: SheetData,
-    mapping: ColumnMapping
+    mapping: ColumnMapping,
+    sheetTypeOverride?: 'expense' | 'income' | null
   ): Transaction[] {
     return sheetData.rows.map((row, index) => {
       const dateVal = mapping.dateColumn !== null ? row[mapping.dateColumn] : '';
@@ -823,7 +890,12 @@ class XLSXParserService {
         type = 'expense';
       } else {
         amount = parseFloat(cleanedAmount) || 0;
-        type = amount < 0 ? 'expense' : 'income';
+        // Use sheet name override if available, otherwise use sign-based detection
+        if (sheetTypeOverride) {
+          type = sheetTypeOverride;
+        } else {
+          type = amount < 0 ? 'expense' : 'income';
+        }
         amount = Math.abs(amount);
       }
 
@@ -848,6 +920,9 @@ class XLSXParserService {
       if (selectedSheets.includes(sheet.name)) {
         let transactions: Transaction[] = [];
 
+        // Detect sheet type from sheet name (expense/income)
+        const sheetTypeFromName = detectSheetTypeFromName(sheet.name);
+
         // Re-analyze each sheet individually
         const format = this.detectFormat(sheet);
 
@@ -856,18 +931,18 @@ class XLSXParserService {
 
           // If we have detail rows, import only those (avoid double counting)
           if (analysis.detailRowIndices.length > 0) {
-            transactions = this.parseMixedSheet(sheet, analysis);
+            transactions = this.parseMixedSheet(sheet, analysis, sheetTypeFromName);
           } else if (analysis.summaryRowIndices.length > 0) {
             // No detail rows - this is a pure monthly summary sheet
             // Import the summary rows as monthly data
-            transactions = this.parseMixedSummaryOnly(sheet, analysis);
+            transactions = this.parseMixedSummaryOnly(sheet, analysis, sheetTypeFromName);
           }
         } else if (format === 'summary') {
           const mapping = this.inferSummaryMapping(sheet.headers, sheet.rows);
-          transactions = this.parseSummaryTransactions(sheet, mapping);
+          transactions = this.parseSummaryTransactions(sheet, mapping, sheetTypeFromName);
         } else {
           const mapping = this.inferSchema(sheet.headers, sheet.rows);
-          transactions = this.parseTransactions(sheet, mapping);
+          transactions = this.parseTransactions(sheet, mapping, sheetTypeFromName);
         }
 
         allTransactions.push(...transactions);
@@ -878,7 +953,11 @@ class XLSXParserService {
   }
 
   // Parse mixed format sheet with only summary rows (no daily details)
-  private parseMixedSummaryOnly(sheet: SheetData, analysis: MixedSheetAnalysis): Transaction[] {
+  private parseMixedSummaryOnly(
+    sheet: SheetData,
+    analysis: MixedSheetAnalysis,
+    sheetTypeOverride?: 'expense' | 'income' | null
+  ): Transaction[] {
     const transactions: Transaction[] = [];
 
     // Import summary rows as monthly data (skip totals)
@@ -891,8 +970,13 @@ class XLSXParserService {
         const value = this.parseAmount(row[col.index]);
         if (value === 0) continue;
 
-        // Determine type by sign: negative = expense, positive = income
-        const type: 'expense' | 'income' = value < 0 ? 'expense' : 'income';
+        // Use sheet name override if available, otherwise fall back to sign-based detection
+        let type: 'expense' | 'income';
+        if (sheetTypeOverride) {
+          type = sheetTypeOverride;
+        } else {
+          type = value < 0 ? 'expense' : 'income';
+        }
 
         transactions.push({
           id: `xlsx_sum_${rowIndex}_${col.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,

@@ -14,6 +14,27 @@ function isAggregateColumn(header: string): boolean {
   return AGGREGATE_COLUMN_NAMES.includes(lower);
 }
 
+// Test helper: Sheet type detection from sheet name
+function detectSheetTypeFromName(sheetName: string): 'expense' | 'income' | null {
+  const lower = sheetName.toLowerCase().trim();
+
+  // Check for expense sheet names
+  if (lower === 'expense' || lower === 'expenses' ||
+      lower.includes('expense') || lower.includes('spending') ||
+      lower.includes('cost') || lower.includes('payment')) {
+    return 'expense';
+  }
+
+  // Check for income sheet names
+  if (lower === 'income' || lower === 'incomes' ||
+      lower.includes('income') || lower.includes('earning') ||
+      lower.includes('revenue') || lower.includes('salary')) {
+    return 'income';
+  }
+
+  return null;
+}
+
 // Test helper: Date classification
 function classifyDateFormat(dateStr: string): 'total' | 'summary' | 'detail' | 'unknown' {
   const trimmed = dateStr.trim();
@@ -351,6 +372,57 @@ describe('Edge Cases', () => {
 
     const result = detectSumColumn(rows, 1, [2, 3, 4]);
     expect(result).toEqual([2, 3, 4]);
+  });
+});
+
+describe('Sheet Type Detection from Name', () => {
+  describe('detectSheetTypeFromName', () => {
+    test('should detect expense sheet names', () => {
+      expect(detectSheetTypeFromName('expense')).toBe('expense');
+      expect(detectSheetTypeFromName('Expense')).toBe('expense');
+      expect(detectSheetTypeFromName('EXPENSE')).toBe('expense');
+      expect(detectSheetTypeFromName('expenses')).toBe('expense');
+      expect(detectSheetTypeFromName('Expenses')).toBe('expense');
+    });
+
+    test('should detect expense-related sheet names', () => {
+      expect(detectSheetTypeFromName('Monthly Expenses')).toBe('expense');
+      expect(detectSheetTypeFromName('expense tracker')).toBe('expense');
+      expect(detectSheetTypeFromName('spending')).toBe('expense');
+      expect(detectSheetTypeFromName('cost')).toBe('expense');
+      expect(detectSheetTypeFromName('payments')).toBe('expense');
+      expect(detectSheetTypeFromName('payment log')).toBe('expense');
+    });
+
+    test('should detect income sheet names', () => {
+      expect(detectSheetTypeFromName('income')).toBe('income');
+      expect(detectSheetTypeFromName('Income')).toBe('income');
+      expect(detectSheetTypeFromName('INCOME')).toBe('income');
+      expect(detectSheetTypeFromName('incomes')).toBe('income');
+    });
+
+    test('should detect income-related sheet names', () => {
+      expect(detectSheetTypeFromName('Monthly Income')).toBe('income');
+      expect(detectSheetTypeFromName('income tracker')).toBe('income');
+      expect(detectSheetTypeFromName('earnings')).toBe('income');
+      expect(detectSheetTypeFromName('revenue')).toBe('income');
+      expect(detectSheetTypeFromName('salary')).toBe('income');
+      expect(detectSheetTypeFromName('Salary History')).toBe('income');
+    });
+
+    test('should return null for neutral sheet names', () => {
+      expect(detectSheetTypeFromName('Sheet1')).toBe(null);
+      expect(detectSheetTypeFromName('Budget')).toBe(null);
+      expect(detectSheetTypeFromName('Summary')).toBe(null);
+      expect(detectSheetTypeFromName('2025')).toBe(null);
+      expect(detectSheetTypeFromName('Data')).toBe(null);
+    });
+
+    test('should handle whitespace', () => {
+      expect(detectSheetTypeFromName('  expense  ')).toBe('expense');
+      expect(detectSheetTypeFromName('  income  ')).toBe('income');
+      expect(detectSheetTypeFromName('   ')).toBe(null);
+    });
   });
 });
 
