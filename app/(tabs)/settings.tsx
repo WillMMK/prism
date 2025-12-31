@@ -19,7 +19,7 @@ export default function Settings() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
 
-  const { setTransactions, transactions } = useBudgetStore();
+  const { setTransactions, transactions, importMetadata, clearData, _hasHydrated } = useBudgetStore();
 
   const handlePickFile = async () => {
     try {
@@ -108,7 +108,10 @@ export default function Settings() {
     setIsLoading(true);
     try {
       const importedTransactions = xlsxParser.parseAllSheets(parsedFile, selectedSheets);
-      setTransactions(importedTransactions);
+      setTransactions(importedTransactions, {
+        sourceFile: fileName || 'Unknown',
+        sheetNames: selectedSheets,
+      });
 
       // Count income vs expense
       const incomeCount = importedTransactions.filter(t => t.type === 'income').length;
@@ -138,14 +141,14 @@ export default function Settings() {
   const handleClearData = () => {
     Alert.alert(
       'Clear All Data',
-      'Are you sure you want to clear all imported transactions?',
+      'Are you sure you want to clear all imported transactions? This will also remove saved data.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Clear',
           style: 'destructive',
           onPress: () => {
-            setTransactions([]);
+            clearData();
             setParsedFile(null);
             setFileName(null);
             setSelectedSheets([]);
@@ -409,6 +412,18 @@ export default function Settings() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Data Status</Text>
         <View style={styles.card}>
+          {/* Persistence indicator */}
+          <View style={styles.persistenceRow}>
+            <Ionicons
+              name={_hasHydrated ? 'cloud-done' : 'cloud-outline'}
+              size={16}
+              color={_hasHydrated ? '#4CAF50' : '#8892b0'}
+            />
+            <Text style={styles.persistenceText}>
+              {_hasHydrated ? 'Data persisted locally' : 'Loading saved data...'}
+            </Text>
+          </View>
+
           <View style={styles.statusRow}>
             <Ionicons
               name={transactions.length > 0 ? 'checkmark-circle' : 'alert-circle'}
@@ -421,6 +436,22 @@ export default function Settings() {
                 : 'No data loaded'}
             </Text>
           </View>
+
+          {importMetadata && (
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataText}>
+                Last import: {new Date(importMetadata.lastImportDate).toLocaleDateString()}
+              </Text>
+              <Text style={styles.metadataText}>
+                Source: {importMetadata.sourceFile}
+              </Text>
+              {importMetadata.sheetNames.length > 0 && (
+                <Text style={styles.metadataText}>
+                  Sheets: {importMetadata.sheetNames.join(', ')}
+                </Text>
+              )}
+            </View>
+          )}
 
           {transactions.length > 0 && (
             <>
@@ -672,6 +703,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
+  persistenceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#0f3460',
+  },
+  persistenceText: {
+    color: '#8892b0',
+    fontSize: 12,
+    marginLeft: 6,
+  },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -680,6 +724,17 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     marginLeft: 12,
+  },
+  metadataRow: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#0f3460',
+  },
+  metadataText: {
+    color: '#8892b0',
+    fontSize: 12,
+    marginBottom: 4,
   },
   statsRow: {
     flexDirection: 'row',

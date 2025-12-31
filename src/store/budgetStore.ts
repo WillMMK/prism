@@ -1,20 +1,33 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Transaction, Category, GoogleSheetsConfig, BudgetSummary, CategorySpending, MonthlyReport } from '../types/budget';
+
+export interface ImportMetadata {
+  lastImportDate: string;
+  sourceFile: string;
+  rowCount: number;
+  sheetNames: string[];
+}
 
 interface BudgetState {
   transactions: Transaction[];
   categories: Category[];
   sheetsConfig: GoogleSheetsConfig;
+  importMetadata: ImportMetadata | null;
   isLoading: boolean;
   error: string | null;
+  _hasHydrated: boolean;
 
   // Actions
-  setTransactions: (transactions: Transaction[]) => void;
+  setTransactions: (transactions: Transaction[], metadata?: Partial<ImportMetadata>) => void;
   addTransaction: (transaction: Transaction) => void;
   removeTransaction: (id: string) => void;
   setSheetsConfig: (config: Partial<GoogleSheetsConfig>) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
+  clearData: () => void;
+  setHasHydrated: (state: boolean) => void;
 
   // Computed
   getBudgetSummary: () => BudgetSummary;
@@ -34,106 +47,141 @@ const defaultCategories: Category[] = [
   { id: '8', name: 'Other', color: '#607D8B', icon: 'ellipsis-horizontal' },
 ];
 
-export const useBudgetStore = create<BudgetState>((set, get) => ({
-  transactions: [],
-  categories: defaultCategories,
-  sheetsConfig: {
-    spreadsheetId: '',
-    sheetName: 'Sheet1',
-    isConnected: false,
-  },
-  isLoading: false,
-  error: null,
+export const useBudgetStore = create<BudgetState>()(
+  persist(
+    (set, get) => ({
+      transactions: [],
+      categories: defaultCategories,
+      sheetsConfig: {
+        spreadsheetId: '',
+        sheetName: 'Sheet1',
+        isConnected: false,
+      },
+      importMetadata: null,
+      isLoading: false,
+      error: null,
+      _hasHydrated: false,
 
-  setTransactions: (transactions) => set({ transactions }),
+      setTransactions: (transactions, metadata) => set({
+        transactions,
+        importMetadata: metadata ? {
+          lastImportDate: new Date().toISOString(),
+          sourceFile: metadata.sourceFile || 'Unknown',
+          rowCount: transactions.length,
+          sheetNames: metadata.sheetNames || [],
+        } : get().importMetadata,
+      }),
 
-  addTransaction: (transaction) =>
-    set((state) => ({ transactions: [transaction, ...state.transactions] })),
+      addTransaction: (transaction) =>
+        set((state) => ({ transactions: [transaction, ...state.transactions] })),
 
-  removeTransaction: (id) =>
-    set((state) => ({
-      transactions: state.transactions.filter((t) => t.id !== id),
-    })),
+      removeTransaction: (id) =>
+        set((state) => ({
+          transactions: state.transactions.filter((t) => t.id !== id),
+        })),
 
-  setSheetsConfig: (config) =>
-    set((state) => ({
-      sheetsConfig: { ...state.sheetsConfig, ...config },
-    })),
+      setSheetsConfig: (config) =>
+        set((state) => ({
+          sheetsConfig: { ...state.sheetsConfig, ...config },
+        })),
 
-  setLoading: (isLoading) => set({ isLoading }),
+      setLoading: (isLoading) => set({ isLoading }),
 
-  setError: (error) => set({ error }),
+      setError: (error) => set({ error }),
 
-  getBudgetSummary: () => {
-    const { transactions } = get();
-    const totalIncome = transactions
-      .filter((t) => t.type === 'income')
-      .reduce((sum, t) => sum + t.amount, 0);
-    const totalExpenses = transactions
-      .filter((t) => t.type === 'expense')
-      .reduce((sum, t) => sum + t.amount, 0);
-    const balance = totalIncome - totalExpenses;
-    const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpenses) / totalIncome) * 100 : 0;
+      clearData: () => set({
+        transactions: [],
+        importMetadata: null,
+        error: null,
+      }),
 
-    return { totalIncome, totalExpenses, balance, savingsRate };
-  },
+      setHasHydrated: (state) => set({ _hasHydrated: state }),
 
-  getCategorySpending: () => {
-    const { transactions, categories } = get();
-    const expenses = transactions.filter((t) => t.type === 'expense');
-    const totalExpenses = expenses.reduce((sum, t) => sum + t.amount, 0);
+      getBudgetSummary: () => {
+        const { transactions } = get();
+        const totalIncome = transactions
+          .filter((t) => t.type === 'income')
+          .reduce((sum, t) => sum + t.amount, 0);
+        const totalExpenses = transactions
+          .filter((t) => t.type === 'expense')
+          .reduce((sum, t) => sum + t.amount, 0);
+        const balance = totalIncome - totalExpenses;
+        const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpenses) / totalIncome) * 100 : 0;
 
-    const categoryTotals = new Map<string, number>();
-    expenses.forEach((t) => {
-      const current = categoryTotals.get(t.category) || 0;
-      categoryTotals.set(t.category, current + t.amount);
-    });
+        return { totalIncome, totalExpenses, balance, savingsRate };
+      },
 
-    return Array.from(categoryTotals.entries())
-      .map(([category, amount]) => {
-        const cat = categories.find((c) => c.name === category);
-        return {
-          category,
-          amount,
-          percentage: totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0,
-          color: cat?.color || '#607D8B',
-        };
-      })
-      .sort((a, b) => b.amount - a.amount);
-  },
+      getCategorySpending: () => {
+        const { transactions, categories } = get();
+        const expenses = transactions.filter((t) => t.type === 'expense');
+        const totalExpenses = expenses.reduce((sum, t) => sum + t.amount, 0);
 
-  getMonthlyReports: (months = 6) => {
-    const { transactions } = get();
-    const reports = new Map<string, { income: number; expenses: number }>();
+        const categoryTotals = new Map<string, number>();
+        expenses.forEach((t) => {
+          const current = categoryTotals.get(t.category) || 0;
+          categoryTotals.set(t.category, current + t.amount);
+        });
 
-    transactions.forEach((t) => {
-      const date = new Date(t.date);
-      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        return Array.from(categoryTotals.entries())
+          .map(([category, amount]) => {
+            const cat = categories.find((c) => c.name === category);
+            return {
+              category,
+              amount,
+              percentage: totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0,
+              color: cat?.color || '#607D8B',
+            };
+          })
+          .sort((a, b) => b.amount - a.amount);
+      },
 
-      const current = reports.get(monthKey) || { income: 0, expenses: 0 };
-      if (t.type === 'income') {
-        current.income += t.amount;
-      } else {
-        current.expenses += t.amount;
-      }
-      reports.set(monthKey, current);
-    });
+      getMonthlyReports: (months = 6) => {
+        const { transactions } = get();
+        const reports = new Map<string, { income: number; expenses: number }>();
 
-    return Array.from(reports.entries())
-      .map(([month, data]) => ({
-        month,
-        income: data.income,
-        expenses: data.expenses,
-        savings: data.income - data.expenses,
-      }))
-      .sort((a, b) => b.month.localeCompare(a.month))
-      .slice(0, months);
-  },
+        transactions.forEach((t) => {
+          const date = new Date(t.date);
+          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
-  getRecentTransactions: (limit = 10) => {
-    const { transactions } = get();
-    return [...transactions]
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, limit);
-  },
-}));
+          const current = reports.get(monthKey) || { income: 0, expenses: 0 };
+          if (t.type === 'income') {
+            current.income += t.amount;
+          } else {
+            current.expenses += t.amount;
+          }
+          reports.set(monthKey, current);
+        });
+
+        return Array.from(reports.entries())
+          .map(([month, data]) => ({
+            month,
+            income: data.income,
+            expenses: data.expenses,
+            savings: data.income - data.expenses,
+          }))
+          .sort((a, b) => b.month.localeCompare(a.month))
+          .slice(0, months);
+      },
+
+      getRecentTransactions: (limit = 10) => {
+        const { transactions } = get();
+        return [...transactions]
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          .slice(0, limit);
+      },
+    }),
+    {
+      name: 'budget-storage',
+      storage: createJSONStorage(() => AsyncStorage),
+      partialize: (state) => ({
+        transactions: state.transactions,
+        categories: state.categories,
+        importMetadata: state.importMetadata,
+        sheetsConfig: state.sheetsConfig,
+      }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
+    }
+  )
+);
