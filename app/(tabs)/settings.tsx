@@ -40,8 +40,18 @@ export default function Settings() {
 
   const { setSheetsConfig, setTransactions, sheetsConfig } = useBudgetStore();
 
-  // Use Expo's auth proxy for Expo Go compatibility
-  const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
+  // Generate redirect URI - show it to user so they can add to Google Console
+  const redirectUri = AuthSession.makeRedirectUri({
+    scheme: 'budget-tracker',
+    path: 'oauth',
+  });
+
+  // Log the redirect URI for debugging
+  useEffect(() => {
+    console.log('=== REDIRECT URI ===');
+    console.log(redirectUri);
+    console.log('====================');
+  }, []);
 
   // Set up Google OAuth
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
@@ -331,6 +341,14 @@ export default function Settings() {
       )}
 
       <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Debug Info</Text>
+        <View style={styles.card}>
+          <Text style={styles.schemaLabel}>Redirect URI (add to Google Console):</Text>
+          <Text style={styles.debugUri} selectable>{redirectUri}</Text>
+        </View>
+      </View>
+
+      <View style={styles.section}>
         <Text style={styles.sectionTitle}>About</Text>
         <View style={styles.card}>
           <Text style={styles.aboutText}>Budget Tracker v1.0.0</Text>
@@ -513,6 +531,12 @@ const styles = StyleSheet.create({
     color: '#8892b0',
     fontSize: 12,
     marginTop: 8,
+  },
+  debugUri: {
+    color: '#4CAF50',
+    fontSize: 12,
+    marginTop: 8,
+    fontFamily: 'monospace',
   },
   bottomPadding: {
     height: 40,
