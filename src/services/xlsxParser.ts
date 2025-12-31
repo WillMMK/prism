@@ -173,30 +173,32 @@ class XLSXParserService {
     const firstColValues = sheet.rows.map(r => r[0] || '');
     const dateFormats = this.analyzeFirstColumnDates(firstColValues);
 
-    // Mixed format: has both monthly summaries (YYYY/M) and daily details (DD/MM/YYYY)
-    if (dateFormats.hasYearFirstDates && dateFormats.hasDayFirstDates) {
-      return 'mixed';
-    }
-
-    // Check for YEAR/MONTH columns (pure summary format)
-    const hasYearMonth = headers.some(h => h === 'year') && headers.some(h => h === 'month');
     const numericColumns = this.countNumericColumns(headers, sheet.rows);
     const categoryColumns = headers.filter(h =>
       this.isExpenseCategory(h) || this.isIncomeCategory(h)
     ).length;
 
+    // Mixed format: has both monthly summaries (YYYY/M) and daily details (DD/MM/YYYY)
+    if (dateFormats.hasYearFirstDates && dateFormats.hasDayFirstDates) {
+      return 'mixed';
+    }
+
+    // Check if first column has year-first dates (likely mixed/summary with date-based rows)
+    // This must be checked BEFORE the numeric/category columns check
+    if (dateFormats.hasYearFirstDates && categoryColumns >= 3) {
+      return 'mixed';
+    }
+
+    // Check for YEAR/MONTH columns (pure summary format)
+    const hasYearMonth = headers.some(h => h === 'year') && headers.some(h => h === 'month');
+
     if (hasYearMonth && categoryColumns >= 3) {
       return 'summary';
     }
 
-    // Many category columns = summary format
+    // Many category columns = summary format (only if no year-first dates detected)
     if (numericColumns >= 5 && categoryColumns >= 3) {
       return 'summary';
-    }
-
-    // Check if first column has mixed date formats indicating mixed sheet
-    if (dateFormats.hasYearFirstDates && categoryColumns >= 3) {
-      return 'mixed';
     }
 
     return 'transaction';
