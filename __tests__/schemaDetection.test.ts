@@ -35,28 +35,65 @@ function detectSheetTypeFromName(sheetName: string): 'expense' | 'income' | null
   return null;
 }
 
-// Test helper: Sheet type detection from column headers
-function detectSheetTypeFromHeaders(headers: string[]): 'expense' | 'income' | null {
+// Test helper: Sheet type detection from column headers and data
+function detectSheetTypeFromHeadersAndData(headers: string[], rows: string[][]): 'expense' | 'income' | null {
   const lowerHeaders = headers.map(h => h.toLowerCase().trim());
 
-  const hasExpenseColumn = lowerHeaders.some(h =>
+  // Find aggregate column indices
+  const expenseColIdx = lowerHeaders.findIndex(h =>
     h === 'expense' || h === 'expenses' || h === 'total expense' || h === 'total expenses'
   );
-  const hasIncomeColumn = lowerHeaders.some(h =>
+  const incomeColIdx = lowerHeaders.findIndex(h =>
     h === 'income' || h === 'total income'
   );
 
-  // If sheet has Expense column but NOT Income column → expense sheet
-  if (hasExpenseColumn && !hasIncomeColumn) {
-    return 'expense';
+  // If neither column exists, can't determine
+  if (expenseColIdx === -1 && incomeColIdx === -1) {
+    return null;
   }
 
-  // If sheet has Income column but NOT Expense column → income sheet
-  if (hasIncomeColumn && !hasExpenseColumn) {
+  // If only one exists, use that
+  if (expenseColIdx >= 0 && incomeColIdx === -1) {
+    return 'expense';
+  }
+  if (incomeColIdx >= 0 && expenseColIdx === -1) {
     return 'income';
   }
 
-  // If both or neither, can't determine from headers alone
+  // Both columns exist - check which one has actual data
+  let expenseSum = 0;
+  let incomeSum = 0;
+  const sampleRows = rows.slice(0, 20);
+
+  for (const row of sampleRows) {
+    if (expenseColIdx >= 0 && row[expenseColIdx]) {
+      const val = parseFloat(String(row[expenseColIdx]).replace(/[$,£€\s]/g, '')) || 0;
+      expenseSum += Math.abs(val);
+    }
+    if (incomeColIdx >= 0 && row[incomeColIdx]) {
+      const val = parseFloat(String(row[incomeColIdx]).replace(/[$,£€\s]/g, '')) || 0;
+      incomeSum += Math.abs(val);
+    }
+  }
+
+  // If only expense column has data → expense sheet
+  if (expenseSum > 0 && incomeSum === 0) {
+    return 'expense';
+  }
+  // If only income column has data → income sheet
+  if (incomeSum > 0 && expenseSum === 0) {
+    return 'income';
+  }
+  // If expense column has significantly more data → expense sheet
+  if (expenseSum > incomeSum * 5) {
+    return 'expense';
+  }
+  // If income column has significantly more data → income sheet
+  if (incomeSum > expenseSum * 5) {
+    return 'income';
+  }
+
+  // Can't determine - both have similar amounts of data
   return null;
 }
 
@@ -451,49 +488,93 @@ describe('Sheet Type Detection from Name', () => {
   });
 });
 
-describe('Sheet Type Detection from Headers', () => {
-  describe('detectSheetTypeFromHeaders', () => {
+describe('Sheet Type Detection from Headers and Data', () => {
+  describe('detectSheetTypeFromHeadersAndData', () => {
     test('should detect expense sheet from Expense column without Income column', () => {
       const headers = ['Date', 'Expense', 'Transport', 'Living', 'Bill'];
-      expect(detectSheetTypeFromHeaders(headers)).toBe('expense');
+      const rows = [['2023/1', '1000', '300', '500', '200']];
+      expect(detectSheetTypeFromHeadersAndData(headers, rows)).toBe('expense');
     });
 
     test('should detect expense sheet with variations', () => {
-      expect(detectSheetTypeFromHeaders(['', 'Expenses', 'Food', 'Rent'])).toBe('expense');
-      expect(detectSheetTypeFromHeaders(['', 'Total Expense', 'Gas'])).toBe('expense');
-      expect(detectSheetTypeFromHeaders(['', 'EXPENSE', 'Bills'])).toBe('expense');
+      const rows = [['2023/1', '1000', '500', '500']];
+      expect(detectSheetTypeFromHeadersAndData(['', 'Expenses', 'Food', 'Rent'], rows)).toBe('expense');
+      expect(detectSheetTypeFromHeadersAndData(['', 'Total Expense', 'Gas'], rows)).toBe('expense');
+      expect(detectSheetTypeFromHeadersAndData(['', 'EXPENSE', 'Bills'], rows)).toBe('expense');
     });
 
     test('should detect income sheet from Income column without Expense column', () => {
       const headers = ['Date', 'Income', 'Salary', 'Bonus', 'Interest'];
-      expect(detectSheetTypeFromHeaders(headers)).toBe('income');
+      const rows = [['2023/1', '5000', '4000', '500', '500']];
+      expect(detectSheetTypeFromHeadersAndData(headers, rows)).toBe('income');
     });
 
     test('should detect income sheet with variations', () => {
-      expect(detectSheetTypeFromHeaders(['', 'Total Income', 'Salary'])).toBe('income');
-      expect(detectSheetTypeFromHeaders(['', 'INCOME', 'Bonus'])).toBe('income');
-    });
-
-    test('should return null when both Expense and Income columns exist', () => {
-      const headers = ['Date', 'Expense', 'Income', 'Net Profit', 'Transport'];
-      expect(detectSheetTypeFromHeaders(headers)).toBe(null);
+      const rows = [['2023/1', '5000', '5000']];
+      expect(detectSheetTypeFromHeadersAndData(['', 'Total Income', 'Salary'], rows)).toBe('income');
+      expect(detectSheetTypeFromHeadersAndData(['', 'INCOME', 'Bonus'], rows)).toBe('income');
     });
 
     test('should return null when neither Expense nor Income columns exist', () => {
       const headers = ['Date', 'Amount', 'Category', 'Description'];
-      expect(detectSheetTypeFromHeaders(headers)).toBe(null);
+      const rows = [['2023/1', '1000', 'Food', 'Groceries']];
+      expect(detectSheetTypeFromHeadersAndData(headers, rows)).toBe(null);
     });
 
-    test('should handle real user expense sheet headers (2023 sheet)', () => {
-      // User has sheets named "2023" with Expense column but no Income column
-      const headers = ['', 'Expense', 'Transport', 'Living', 'Bill', 'Groceries', 'Dine', 'RMIT', 'Mortgage', 'Childcare'];
-      expect(detectSheetTypeFromHeaders(headers)).toBe('expense');
+    test('should detect expense sheet when both columns exist but only Expense has data', () => {
+      // User's actual case: expense sheet "2023" has both Expense and income columns
+      // but only the Expense column has values
+      const headers = ['', 'Expense', 'income', 'Net Profit', 'Transport', 'Living', 'Bill'];
+      const rows = [
+        ['2023/1', '1500', '0', '-1500', '500', '700', '300'],
+        ['2023/2', '1800', '0', '-1800', '600', '800', '400'],
+        ['2023/3', '1600', '0', '-1600', '550', '750', '300'],
+      ];
+      expect(detectSheetTypeFromHeadersAndData(headers, rows)).toBe('expense');
     });
 
-    test('should handle real user income sheet headers (2023_income sheet)', () => {
-      // User has sheets named "2023_income" with Income column but no Expense column
+    test('should detect income sheet when both columns exist but only Income has data', () => {
+      const headers = ['', 'Expense', 'Income', 'Net Profit', 'Salary', 'Bonus'];
+      const rows = [
+        ['2023/1', '0', '5000', '5000', '4500', '500'],
+        ['2023/2', '0', '5500', '5500', '5000', '500'],
+        ['2023/3', '0', '5200', '5200', '4700', '500'],
+      ];
+      expect(detectSheetTypeFromHeadersAndData(headers, rows)).toBe('income');
+    });
+
+    test('should handle real user expense sheet (2023 sheet with both columns)', () => {
+      // User's expense sheet "2023" has: Date, Expense, income, Net Profit, Transport, Living, ...
+      // The income column is there but has 0 or empty values
+      const headers = ['', 'Expense', 'income', 'Net Profit', 'Transport', 'Living', 'Bill', 'Groceries'];
+      const rows = [
+        ['2023/1', '-4500', '0', '-4500', '-450', '-900', '-180', '-280'],
+        ['2023/2', '-4200', '0', '-4200', '-420', '-850', '-170', '-260'],
+        ['2023/3', '-4000', '', '-4000', '-400', '-800', '-160', '-240'],
+      ];
+      expect(detectSheetTypeFromHeadersAndData(headers, rows)).toBe('expense');
+    });
+
+    test('should handle real user income sheet (2023_income)', () => {
+      // User's income sheet has: Date, Income, Will, Yan, Salary Package, Interest
       const headers = ['', 'Income', 'Will', 'Yan', 'Salary Package', 'Interest'];
-      expect(detectSheetTypeFromHeaders(headers)).toBe('income');
+      const rows = [
+        ['2023/1', '9500', '5500', '2000', '1500', '500'],
+        ['2023/2', '9000', '5200', '1900', '1400', '500'],
+        ['2023/3', '8500', '4900', '1800', '1300', '500'],
+      ];
+      expect(detectSheetTypeFromHeadersAndData(headers, rows)).toBe('income');
+    });
+
+    test('should return null when both columns have significant data', () => {
+      // Mixed sheet with both expense and income data
+      const headers = ['', 'Expense', 'Income', 'Net Profit'];
+      const rows = [
+        ['2023/1', '4500', '9500', '5000'],
+        ['2023/2', '4200', '9000', '4800'],
+        ['2023/3', '4000', '8500', '4500'],
+      ];
+      expect(detectSheetTypeFromHeadersAndData(headers, rows)).toBe(null);
     });
   });
 });

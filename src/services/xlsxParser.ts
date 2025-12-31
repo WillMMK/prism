@@ -110,28 +110,66 @@ function detectSheetTypeFromName(sheetName: string): 'expense' | 'income' | null
   return null;
 }
 
-// Detect sheet type from column headers (checks for Expense/Income aggregate columns)
-function detectSheetTypeFromHeaders(headers: string[]): 'expense' | 'income' | null {
+// Detect sheet type from column headers and data
+// Checks which aggregate column (Expense/Income) actually has data
+function detectSheetTypeFromHeadersAndData(headers: string[], rows: string[][]): 'expense' | 'income' | null {
   const lowerHeaders = headers.map(h => h.toLowerCase().trim());
 
-  const hasExpenseColumn = lowerHeaders.some(h =>
+  // Find aggregate column indices
+  const expenseColIdx = lowerHeaders.findIndex(h =>
     h === 'expense' || h === 'expenses' || h === 'total expense' || h === 'total expenses'
   );
-  const hasIncomeColumn = lowerHeaders.some(h =>
+  const incomeColIdx = lowerHeaders.findIndex(h =>
     h === 'income' || h === 'total income'
   );
 
-  // If sheet has Expense column but NOT Income column → expense sheet
-  if (hasExpenseColumn && !hasIncomeColumn) {
-    return 'expense';
+  // If neither column exists, can't determine
+  if (expenseColIdx === -1 && incomeColIdx === -1) {
+    return null;
   }
 
-  // If sheet has Income column but NOT Expense column → income sheet
-  if (hasIncomeColumn && !hasExpenseColumn) {
+  // If only one exists, use that
+  if (expenseColIdx >= 0 && incomeColIdx === -1) {
+    return 'expense';
+  }
+  if (incomeColIdx >= 0 && expenseColIdx === -1) {
     return 'income';
   }
 
-  // If both or neither, can't determine from headers alone
+  // Both columns exist - check which one has actual data
+  let expenseSum = 0;
+  let incomeSum = 0;
+  const sampleRows = rows.slice(0, 20); // Check first 20 data rows
+
+  for (const row of sampleRows) {
+    if (expenseColIdx >= 0 && row[expenseColIdx]) {
+      const val = parseFloat(String(row[expenseColIdx]).replace(/[$,£€\s]/g, '')) || 0;
+      expenseSum += Math.abs(val);
+    }
+    if (incomeColIdx >= 0 && row[incomeColIdx]) {
+      const val = parseFloat(String(row[incomeColIdx]).replace(/[$,£€\s]/g, '')) || 0;
+      incomeSum += Math.abs(val);
+    }
+  }
+
+  // If only expense column has data → expense sheet
+  if (expenseSum > 0 && incomeSum === 0) {
+    return 'expense';
+  }
+  // If only income column has data → income sheet
+  if (incomeSum > 0 && expenseSum === 0) {
+    return 'income';
+  }
+  // If expense column has significantly more data → expense sheet
+  if (expenseSum > incomeSum * 5) {
+    return 'expense';
+  }
+  // If income column has significantly more data → income sheet
+  if (incomeSum > expenseSum * 5) {
+    return 'income';
+  }
+
+  // Can't determine - both have similar amounts of data
   return null;
 }
 
@@ -947,10 +985,10 @@ class XLSXParserService {
       if (selectedSheets.includes(sheet.name)) {
         let transactions: Transaction[] = [];
 
-        // Detect sheet type: first try sheet name, then fall back to header-based detection
+        // Detect sheet type: first try sheet name, then fall back to header+data detection
         let sheetType = detectSheetTypeFromName(sheet.name);
         if (!sheetType) {
-          sheetType = detectSheetTypeFromHeaders(sheet.headers);
+          sheetType = detectSheetTypeFromHeadersAndData(sheet.headers, sheet.rows);
         }
 
         // Re-analyze each sheet individually
