@@ -7,12 +7,10 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  Modal,
-  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import { xlsxParser, SheetData, ColumnMapping, ParsedFile } from '../../src/services/xlsxParser';
+import { xlsxParser, SheetData, ColumnMapping, ParsedFile, SummaryMapping, DataFormat } from '../../src/services/xlsxParser';
 import { useBudgetStore } from '../../src/store/budgetStore';
 
 export default function Settings() {
@@ -20,8 +18,6 @@ export default function Settings() {
   const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
-  const [schema, setSchema] = useState<ColumnMapping | null>(null);
-  const [showSheetPicker, setShowSheetPicker] = useState(false);
 
   const { setTransactions, transactions } = useBudgetStore();
 
@@ -47,19 +43,34 @@ export default function Settings() {
       try {
         const parsed = await xlsxParser.parseFile(file.uri);
         setParsedFile(parsed);
-        setSchema(parsed.inferredMapping);
         setSelectedSheets(parsed.sheets.map(s => s.name));
 
-        const inferredFields = [];
-        if (parsed.inferredMapping.dateColumn !== null) inferredFields.push('Date');
-        if (parsed.inferredMapping.descriptionColumn !== null) inferredFields.push('Description');
-        if (parsed.inferredMapping.amountColumn !== null) inferredFields.push('Amount');
-        if (parsed.inferredMapping.categoryColumn !== null) inferredFields.push('Category');
+        // Show detection results
+        if (parsed.detectedFormat === 'summary' && parsed.summaryMapping) {
+          const sm = parsed.summaryMapping;
+          Alert.alert(
+            'Summary Format Detected',
+            `Found ${parsed.sheets.length} sheet(s)\n\n` +
+            `Format: Monthly Summary (YEAR/MONTH columns)\n\n` +
+            `Expense categories (${sm.expenseCategories.length}):\n${sm.expenseCategories.map(c => c.name).join(', ') || 'None'}\n\n` +
+            `Income categories (${sm.incomeCategories.length}):\n${sm.incomeCategories.map(c => c.name).join(', ') || 'None'}`
+          );
+        } else {
+          const mapping = parsed.inferredMapping;
+          const inferredFields = [];
+          if (mapping.dateColumn !== null) inferredFields.push('Date');
+          if (mapping.descriptionColumn !== null) inferredFields.push('Description');
+          if (mapping.amountColumn !== null) inferredFields.push('Amount');
+          if (mapping.categoryColumn !== null) inferredFields.push('Category');
 
-        Alert.alert(
-          'File Analyzed',
-          `Found ${parsed.sheets.length} sheet(s)\n\nDetected columns: ${inferredFields.join(', ') || 'None auto-detected'}\n\nHeaders: ${parsed.inferredMapping.headers.slice(0, 4).join(', ')}${parsed.inferredMapping.headers.length > 4 ? '...' : ''}`
-        );
+          Alert.alert(
+            'Transaction Format Detected',
+            `Found ${parsed.sheets.length} sheet(s)\n\n` +
+            `Format: Transaction Log\n\n` +
+            `Detected: ${inferredFields.join(', ') || 'None auto-detected'}\n\n` +
+            `Headers: ${mapping.headers.slice(0, 5).join(', ')}${mapping.headers.length > 5 ? '...' : ''}`
+          );
+        }
       } catch (error: any) {
         Alert.alert('Error', error.message || 'Failed to parse file');
         setParsedFile(null);
@@ -88,9 +99,15 @@ export default function Settings() {
       const importedTransactions = xlsxParser.parseAllSheets(parsedFile, selectedSheets);
       setTransactions(importedTransactions);
 
+      // Count income vs expense
+      const incomeCount = importedTransactions.filter(t => t.type === 'income').length;
+      const expenseCount = importedTransactions.filter(t => t.type === 'expense').length;
+
       Alert.alert(
         'Import Complete',
-        `Imported ${importedTransactions.length} transactions from ${selectedSheets.length} sheet(s)`
+        `Imported ${importedTransactions.length} transactions:\n` +
+        `• ${incomeCount} income entries\n` +
+        `• ${expenseCount} expense entries`
       );
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to import data');
@@ -121,13 +138,107 @@ export default function Settings() {
             setParsedFile(null);
             setFileName(null);
             setSelectedSheets([]);
-            setSchema(null);
             Alert.alert('Cleared', 'All data has been cleared');
           },
         },
       ]
     );
   };
+
+  // Render summary format schema
+  const renderSummarySchema = (mapping: SummaryMapping) => (
+    <View style={styles.card}>
+      <View style={styles.formatBadge}>
+        <Ionicons name="calendar" size={16} color="#4CAF50" />
+        <Text style={styles.formatText}>Monthly Summary Format</Text>
+      </View>
+
+      <View style={styles.categorySection}>
+        <Text style={styles.categoryTitle}>
+          <Ionicons name="arrow-down-circle" size={14} color="#e94560" /> Expense Categories ({mapping.expenseCategories.length})
+        </Text>
+        <View style={styles.categoryTags}>
+          {mapping.expenseCategories.map((cat, idx) => (
+            <View key={idx} style={[styles.tag, styles.expenseTag]}>
+              <Text style={styles.tagText}>{cat.name}</Text>
+            </View>
+          ))}
+          {mapping.expenseCategories.length === 0 && (
+            <Text style={styles.noneText}>None detected</Text>
+          )}
+        </View>
+      </View>
+
+      <View style={styles.categorySection}>
+        <Text style={styles.categoryTitle}>
+          <Ionicons name="arrow-up-circle" size={14} color="#4CAF50" /> Income Categories ({mapping.incomeCategories.length})
+        </Text>
+        <View style={styles.categoryTags}>
+          {mapping.incomeCategories.map((cat, idx) => (
+            <View key={idx} style={[styles.tag, styles.incomeTag]}>
+              <Text style={styles.tagText}>{cat.name}</Text>
+            </View>
+          ))}
+          {mapping.incomeCategories.length === 0 && (
+            <Text style={styles.noneText}>None detected</Text>
+          )}
+        </View>
+      </View>
+
+      {mapping.totalColumns.length > 0 && (
+        <View style={styles.categorySection}>
+          <Text style={styles.categoryTitle}>
+            <Ionicons name="calculator" size={14} color="#8892b0" /> Summary Columns (skipped)
+          </Text>
+          <View style={styles.categoryTags}>
+            {mapping.totalColumns.map((col, idx) => (
+              <View key={idx} style={[styles.tag, styles.summaryTag]}>
+                <Text style={styles.tagText}>{col.name}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+    </View>
+  );
+
+  // Render transaction format schema
+  const renderTransactionSchema = (mapping: ColumnMapping) => (
+    <View style={styles.card}>
+      <View style={styles.formatBadge}>
+        <Ionicons name="list" size={16} color="#64B5F6" />
+        <Text style={styles.formatText}>Transaction Log Format</Text>
+      </View>
+
+      <View style={styles.schemaRow}>
+        <Text style={styles.schemaLabel}>Date:</Text>
+        <Text style={styles.schemaValue}>
+          {mapping.dateColumn !== null ? mapping.headers[mapping.dateColumn] : '—'}
+        </Text>
+      </View>
+      <View style={styles.schemaRow}>
+        <Text style={styles.schemaLabel}>Description:</Text>
+        <Text style={styles.schemaValue}>
+          {mapping.descriptionColumn !== null ? mapping.headers[mapping.descriptionColumn] : '—'}
+        </Text>
+      </View>
+      <View style={styles.schemaRow}>
+        <Text style={styles.schemaLabel}>Amount:</Text>
+        <Text style={styles.schemaValue}>
+          {mapping.amountColumn !== null ? mapping.headers[mapping.amountColumn] : '—'}
+        </Text>
+      </View>
+      <View style={styles.schemaRow}>
+        <Text style={styles.schemaLabel}>Category:</Text>
+        <Text style={styles.schemaValue}>
+          {mapping.categoryColumn !== null ? mapping.headers[mapping.categoryColumn] : '—'}
+        </Text>
+      </View>
+      <Text style={styles.hint}>
+        All columns: {mapping.headers.join(', ')}
+      </Text>
+    </View>
+  );
 
   return (
     <ScrollView style={styles.container}>
@@ -208,38 +319,12 @@ export default function Settings() {
         </View>
       )}
 
-      {schema && schema.headers.length > 0 && (
+      {parsedFile && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Detected Schema</Text>
-          <View style={styles.card}>
-            <View style={styles.schemaRow}>
-              <Text style={styles.schemaLabel}>Date:</Text>
-              <Text style={styles.schemaValue}>
-                {schema.dateColumn !== null ? schema.headers[schema.dateColumn] : '—'}
-              </Text>
-            </View>
-            <View style={styles.schemaRow}>
-              <Text style={styles.schemaLabel}>Description:</Text>
-              <Text style={styles.schemaValue}>
-                {schema.descriptionColumn !== null ? schema.headers[schema.descriptionColumn] : '—'}
-              </Text>
-            </View>
-            <View style={styles.schemaRow}>
-              <Text style={styles.schemaLabel}>Amount:</Text>
-              <Text style={styles.schemaValue}>
-                {schema.amountColumn !== null ? schema.headers[schema.amountColumn] : '—'}
-              </Text>
-            </View>
-            <View style={styles.schemaRow}>
-              <Text style={styles.schemaLabel}>Category:</Text>
-              <Text style={styles.schemaValue}>
-                {schema.categoryColumn !== null ? schema.headers[schema.categoryColumn] : '—'}
-              </Text>
-            </View>
-            <Text style={styles.hint}>
-              All columns: {schema.headers.join(', ')}
-            </Text>
-          </View>
+          {parsedFile.detectedFormat === 'summary' && parsedFile.summaryMapping
+            ? renderSummarySchema(parsedFile.summaryMapping)
+            : renderTransactionSchema(parsedFile.inferredMapping)}
         </View>
       )}
 
@@ -260,13 +345,36 @@ export default function Settings() {
           </View>
 
           {transactions.length > 0 && (
-            <TouchableOpacity
-              style={styles.clearButton}
-              onPress={handleClearData}
-            >
-              <Ionicons name="trash" size={18} color="#e94560" />
-              <Text style={styles.clearButtonText}>Clear All Data</Text>
-            </TouchableOpacity>
+            <>
+              <View style={styles.statsRow}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>
+                    {transactions.filter(t => t.type === 'income').length}
+                  </Text>
+                  <Text style={styles.statLabel}>Income</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>
+                    {transactions.filter(t => t.type === 'expense').length}
+                  </Text>
+                  <Text style={styles.statLabel}>Expenses</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>
+                    {new Set(transactions.map(t => t.category)).size}
+                  </Text>
+                  <Text style={styles.statLabel}>Categories</Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.clearButton}
+                onPress={handleClearData}
+              >
+                <Ionicons name="trash" size={18} color="#e94560" />
+                <Text style={styles.clearButtonText}>Clear All Data</Text>
+              </TouchableOpacity>
+            </>
           )}
         </View>
       </View>
@@ -277,7 +385,8 @@ export default function Settings() {
           <Text style={styles.aboutText}>Budget Tracker v1.0.0</Text>
           <Text style={styles.hint}>
             Supports .xlsx, .xls, and .csv files{'\n'}
-            Auto-detects date, amount, description, and category columns
+            Auto-detects: Transaction logs & Monthly summaries{'\n'}
+            Intelligently categorizes expense vs income columns
           </Text>
         </View>
       </View>
@@ -378,6 +487,65 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 8,
   },
+  formatBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f3460',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    alignSelf: 'flex-start',
+    marginBottom: 16,
+    gap: 6,
+  },
+  formatText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  categorySection: {
+    marginBottom: 16,
+  },
+  categoryTitle: {
+    color: '#ccd6f6',
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  categoryTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  tag: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  expenseTag: {
+    backgroundColor: 'rgba(233, 69, 96, 0.2)',
+    borderWidth: 1,
+    borderColor: '#e94560',
+  },
+  incomeTag: {
+    backgroundColor: 'rgba(76, 175, 80, 0.2)',
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+  },
+  summaryTag: {
+    backgroundColor: 'rgba(136, 146, 176, 0.2)',
+    borderWidth: 1,
+    borderColor: '#8892b0',
+  },
+  tagText: {
+    color: '#fff',
+    fontSize: 12,
+  },
+  noneText: {
+    color: '#8892b0',
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
   schemaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -402,6 +570,27 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     marginLeft: 12,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#0f3460',
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statValue: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '600',
+  },
+  statLabel: {
+    color: '#8892b0',
+    fontSize: 12,
+    marginTop: 4,
   },
   clearButton: {
     flexDirection: 'row',
