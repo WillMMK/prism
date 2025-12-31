@@ -35,6 +35,31 @@ function detectSheetTypeFromName(sheetName: string): 'expense' | 'income' | null
   return null;
 }
 
+// Test helper: Sheet type detection from column headers
+function detectSheetTypeFromHeaders(headers: string[]): 'expense' | 'income' | null {
+  const lowerHeaders = headers.map(h => h.toLowerCase().trim());
+
+  const hasExpenseColumn = lowerHeaders.some(h =>
+    h === 'expense' || h === 'expenses' || h === 'total expense' || h === 'total expenses'
+  );
+  const hasIncomeColumn = lowerHeaders.some(h =>
+    h === 'income' || h === 'total income'
+  );
+
+  // If sheet has Expense column but NOT Income column → expense sheet
+  if (hasExpenseColumn && !hasIncomeColumn) {
+    return 'expense';
+  }
+
+  // If sheet has Income column but NOT Expense column → income sheet
+  if (hasIncomeColumn && !hasExpenseColumn) {
+    return 'income';
+  }
+
+  // If both or neither, can't determine from headers alone
+  return null;
+}
+
 // Test helper: Date classification
 function classifyDateFormat(dateStr: string): 'total' | 'summary' | 'detail' | 'unknown' {
   const trimmed = dateStr.trim();
@@ -422,6 +447,53 @@ describe('Sheet Type Detection from Name', () => {
       expect(detectSheetTypeFromName('  expense  ')).toBe('expense');
       expect(detectSheetTypeFromName('  income  ')).toBe('income');
       expect(detectSheetTypeFromName('   ')).toBe(null);
+    });
+  });
+});
+
+describe('Sheet Type Detection from Headers', () => {
+  describe('detectSheetTypeFromHeaders', () => {
+    test('should detect expense sheet from Expense column without Income column', () => {
+      const headers = ['Date', 'Expense', 'Transport', 'Living', 'Bill'];
+      expect(detectSheetTypeFromHeaders(headers)).toBe('expense');
+    });
+
+    test('should detect expense sheet with variations', () => {
+      expect(detectSheetTypeFromHeaders(['', 'Expenses', 'Food', 'Rent'])).toBe('expense');
+      expect(detectSheetTypeFromHeaders(['', 'Total Expense', 'Gas'])).toBe('expense');
+      expect(detectSheetTypeFromHeaders(['', 'EXPENSE', 'Bills'])).toBe('expense');
+    });
+
+    test('should detect income sheet from Income column without Expense column', () => {
+      const headers = ['Date', 'Income', 'Salary', 'Bonus', 'Interest'];
+      expect(detectSheetTypeFromHeaders(headers)).toBe('income');
+    });
+
+    test('should detect income sheet with variations', () => {
+      expect(detectSheetTypeFromHeaders(['', 'Total Income', 'Salary'])).toBe('income');
+      expect(detectSheetTypeFromHeaders(['', 'INCOME', 'Bonus'])).toBe('income');
+    });
+
+    test('should return null when both Expense and Income columns exist', () => {
+      const headers = ['Date', 'Expense', 'Income', 'Net Profit', 'Transport'];
+      expect(detectSheetTypeFromHeaders(headers)).toBe(null);
+    });
+
+    test('should return null when neither Expense nor Income columns exist', () => {
+      const headers = ['Date', 'Amount', 'Category', 'Description'];
+      expect(detectSheetTypeFromHeaders(headers)).toBe(null);
+    });
+
+    test('should handle real user expense sheet headers (2023 sheet)', () => {
+      // User has sheets named "2023" with Expense column but no Income column
+      const headers = ['', 'Expense', 'Transport', 'Living', 'Bill', 'Groceries', 'Dine', 'RMIT', 'Mortgage', 'Childcare'];
+      expect(detectSheetTypeFromHeaders(headers)).toBe('expense');
+    });
+
+    test('should handle real user income sheet headers (2023_income sheet)', () => {
+      // User has sheets named "2023_income" with Income column but no Expense column
+      const headers = ['', 'Income', 'Will', 'Yan', 'Salary Package', 'Interest'];
+      expect(detectSheetTypeFromHeaders(headers)).toBe('income');
     });
   });
 });

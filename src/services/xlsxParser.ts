@@ -110,6 +110,31 @@ function detectSheetTypeFromName(sheetName: string): 'expense' | 'income' | null
   return null;
 }
 
+// Detect sheet type from column headers (checks for Expense/Income aggregate columns)
+function detectSheetTypeFromHeaders(headers: string[]): 'expense' | 'income' | null {
+  const lowerHeaders = headers.map(h => h.toLowerCase().trim());
+
+  const hasExpenseColumn = lowerHeaders.some(h =>
+    h === 'expense' || h === 'expenses' || h === 'total expense' || h === 'total expenses'
+  );
+  const hasIncomeColumn = lowerHeaders.some(h =>
+    h === 'income' || h === 'total income'
+  );
+
+  // If sheet has Expense column but NOT Income column → expense sheet
+  if (hasExpenseColumn && !hasIncomeColumn) {
+    return 'expense';
+  }
+
+  // If sheet has Income column but NOT Expense column → income sheet
+  if (hasIncomeColumn && !hasExpenseColumn) {
+    return 'income';
+  }
+
+  // If both or neither, can't determine from headers alone
+  return null;
+}
+
 class XLSXParserService {
   async parseFile(fileUri: string): Promise<ParsedFile> {
     const base64 = await FileSystem.readAsStringAsync(fileUri, {
@@ -922,8 +947,11 @@ class XLSXParserService {
       if (selectedSheets.includes(sheet.name)) {
         let transactions: Transaction[] = [];
 
-        // Detect sheet type from sheet name (expense/income)
-        const sheetTypeFromName = detectSheetTypeFromName(sheet.name);
+        // Detect sheet type: first try sheet name, then fall back to header-based detection
+        let sheetType = detectSheetTypeFromName(sheet.name);
+        if (!sheetType) {
+          sheetType = detectSheetTypeFromHeaders(sheet.headers);
+        }
 
         // Re-analyze each sheet individually
         const format = this.detectFormat(sheet);
@@ -931,20 +959,23 @@ class XLSXParserService {
         if (format === 'mixed') {
           const analysis = this.analyzeMixedSheet(sheet);
 
+          // Use analysis.sheetType as final fallback if still no type detected
+          const finalSheetType = sheetType || analysis.sheetType;
+
           // If we have detail rows, import only those (avoid double counting)
           if (analysis.detailRowIndices.length > 0) {
-            transactions = this.parseMixedSheet(sheet, analysis, sheetTypeFromName);
+            transactions = this.parseMixedSheet(sheet, analysis, finalSheetType !== 'mixed' ? finalSheetType : null);
           } else if (analysis.summaryRowIndices.length > 0) {
             // No detail rows - this is a pure monthly summary sheet
             // Import the summary rows as monthly data
-            transactions = this.parseMixedSummaryOnly(sheet, analysis, sheetTypeFromName);
+            transactions = this.parseMixedSummaryOnly(sheet, analysis, finalSheetType !== 'mixed' ? finalSheetType : null);
           }
         } else if (format === 'summary') {
           const mapping = this.inferSummaryMapping(sheet.headers, sheet.rows);
-          transactions = this.parseSummaryTransactions(sheet, mapping, sheetTypeFromName);
+          transactions = this.parseSummaryTransactions(sheet, mapping, sheetType);
         } else {
           const mapping = this.inferSchema(sheet.headers, sheet.rows);
-          transactions = this.parseTransactions(sheet, mapping, sheetTypeFromName);
+          transactions = this.parseTransactions(sheet, mapping, sheetType);
         }
 
         allTransactions.push(...transactions);
