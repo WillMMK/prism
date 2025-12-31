@@ -34,7 +34,9 @@ export default function Settings() {
   const { setSheetsConfig, setTransactions, sheetsConfig } = useBudgetStore();
 
   // Set up Google OAuth with the Google provider
+  // expoClientId is used for Expo Go (proxied through auth.expo.io)
   const [request, response, promptAsync] = Google.useAuthRequest({
+    expoClientId: GOOGLE_WEB_CLIENT_ID,
     webClientId: GOOGLE_WEB_CLIENT_ID,
     scopes: [
       'https://www.googleapis.com/auth/spreadsheets.readonly',
