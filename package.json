@@ -7,6 +7,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "test": "jest",
+    "test:coverage": "jest --coverage",
     "build:ios": "eas build --platform ios --profile production",
     "build:preview": "eas build --platform ios --profile preview",
     "submit:ios": "eas submit --platform ios"
@@ -34,7 +36,10 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/react": "~19.1.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
     "typescript": "~5.9.2"
   },
   "private": true
