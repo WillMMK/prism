@@ -63,7 +63,7 @@ const EXPENSE_KEYWORDS = [
   'rmit',
 ];
 
-// Common income category keywords
+// Common income category keywords (for breakdown categories, NOT totals)
 const INCOME_KEYWORDS = [
   'salary', 'wage', 'wages', 'pay', 'paycheck',
   'earning', 'earnings',
@@ -76,6 +76,18 @@ const INCOME_KEYWORDS = [
   'freelance', 'consulting',
   'package',
 ];
+
+// Aggregate/sum column names to always skip (these are totals, not categories)
+const AGGREGATE_COLUMN_NAMES = [
+  'income', 'expense', 'expenses', 'net profit', 'net', 'total',
+  'balance', 'sum', 'grand total', 'subtotal',
+];
+
+// Check if column name is an aggregate/sum column
+function isAggregateColumn(header: string): boolean {
+  const lower = header.toLowerCase().trim();
+  return AGGREGATE_COLUMN_NAMES.includes(lower);
+}
 
 class XLSXParserService {
   async parseFile(fileUri: string): Promise<ParsedFile> {
@@ -219,11 +231,8 @@ class XLSXParserService {
       if (index === 0) return; // Skip date column
       if (!header.trim()) return;
 
-      const lower = header.toLowerCase().trim();
-      // Skip "Expense", "Income", "Net Profit" total columns
-      if (lower === 'expense' || lower === 'expenses' ||
-          lower === 'income' || lower === 'net profit' ||
-          lower === 'net' || lower === 'total' || lower === 'balance') {
+      // Skip aggregate columns (income, expense, net profit, etc.)
+      if (isAggregateColumn(header)) {
         return;
       }
 
@@ -386,7 +395,7 @@ class XLSXParserService {
     return INCOME_KEYWORDS.some(kw => lower === kw || lower.includes(kw));
   }
 
-  // For summary format (YEAR/MONTH columns)
+  // For summary format (YEAR/MONTH columns or date-first column)
   inferSummaryMapping(headers: string[], rows: string[][]): SummaryMapping {
     const mapping: SummaryMapping = {
       yearColumn: null,
@@ -397,6 +406,7 @@ class XLSXParserService {
     };
 
     const numericColumns: number[] = [];
+    let dateColumn: number | null = null;
 
     headers.forEach((header, index) => {
       const lower = header.toLowerCase().trim();
@@ -410,7 +420,21 @@ class XLSXParserService {
         return;
       }
 
+      // Check if first column looks like dates
+      if (index === 0 && !header.trim()) {
+        const firstColValues = rows.slice(0, 10).map(r => r[0] || '');
+        if (this.looksLikeDateColumn(firstColValues)) {
+          dateColumn = 0;
+          return;
+        }
+      }
+
       if (!header.trim()) return;
+
+      // Skip aggregate columns by name (income, expense, net profit, etc.)
+      if (isAggregateColumn(header)) {
+        return;
+      }
 
       const sampleValues = rows.slice(0, 10).map(row => row[index] || '');
       if (this.looksLikeAmount(sampleValues)) {
@@ -418,12 +442,27 @@ class XLSXParserService {
       }
     });
 
-    // Detect sum columns
+    // Store the date column if found
+    if (dateColumn !== null) {
+      (mapping as any).dateColumn = dateColumn;
+    }
+
+    // Detect sum columns by analyzing data patterns
     const sumColumns = this.detectSumColumns(headers, rows, numericColumns);
     const categoryColumns = numericColumns.filter(idx => !sumColumns.has(idx));
 
+    // Also mark aggregate columns as sum columns even if not detected
+    headers.forEach((header, index) => {
+      if (isAggregateColumn(header) && numericColumns.includes(index) && !sumColumns.has(index)) {
+        sumColumns.set(index, []);  // Mark as sum column with empty components
+      }
+    });
+
     categoryColumns.forEach(index => {
       const header = headers[index];
+
+      // Double-check: skip if it's an aggregate column
+      if (isAggregateColumn(header)) return;
 
       let isPartOfExpenseSum = false;
       let isPartOfIncomeSum = false;
@@ -468,12 +507,34 @@ class XLSXParserService {
         type = 'income';
       } else if (lower.includes('net') || lower.includes('profit')) {
         type = 'net';
+      } else if (lower.includes('expense')) {
+        type = 'expense';
       }
 
       mapping.totalColumns.push({ index, name: header, type, sumOf });
     });
 
     return mapping;
+  }
+
+  // Check if column values look like dates
+  private looksLikeDateColumn(values: string[]): boolean {
+    let dateCount = 0;
+    for (const val of values) {
+      const trimmed = val.trim();
+      if (!trimmed) continue;
+      // Check for date patterns or Excel serial numbers
+      if (/^\d{4}[\/\-]\d{1,2}/.test(trimmed) ||
+          /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}/.test(trimmed)) {
+        dateCount++;
+      }
+      // Excel serial date
+      const num = parseFloat(trimmed);
+      if (!isNaN(num) && num > 30000 && num < 100000) {
+        dateCount++;
+      }
+    }
+    return dateCount >= values.length * 0.5;
   }
 
   private detectSumColumns(
@@ -559,25 +620,42 @@ class XLSXParserService {
     mapping: SummaryMapping
   ): Transaction[] {
     const transactions: Transaction[] = [];
+    const dateColumn = (mapping as any).dateColumn as number | undefined;
 
     sheetData.rows.forEach((row, rowIndex) => {
-      let year = new Date().getFullYear();
-      let month = 1;
+      let dateStr: string;
 
-      if (mapping.yearColumn !== null) {
-        year = parseInt(row[mapping.yearColumn]) || year;
-      }
-      if (mapping.monthColumn !== null) {
-        month = this.parseMonth(row[mapping.monthColumn]);
+      // Try different date sources in order of preference
+      if (dateColumn !== undefined && row[dateColumn]) {
+        // Parse from date column (first column with date values)
+        dateStr = this.parseDateFromFirstColumn(row[dateColumn]);
+      } else if (mapping.yearColumn !== null) {
+        // Parse from YEAR/MONTH columns
+        let year = parseInt(row[mapping.yearColumn]) || new Date().getFullYear();
+        let month = 1;
+        if (mapping.monthColumn !== null) {
+          month = this.parseMonth(row[mapping.monthColumn]);
+        }
+        dateStr = `${year}-${String(month).padStart(2, '0')}-01`;
+      } else {
+        // Skip rows without date info
+        return;
       }
 
-      const dateStr = `${year}-${String(month).padStart(2, '0')}-01`;
+      // Skip empty/total rows
+      if (!dateStr || dateStr === new Date().toISOString().split('T')[0]) {
+        // Check if this is a total row (first col empty or has "total" text)
+        const firstCol = (row[0] || '').toLowerCase().trim();
+        if (!firstCol || firstCol.includes('total')) {
+          return;
+        }
+      }
 
       mapping.expenseCategories.forEach(cat => {
         const value = this.parseAmount(row[cat.index]);
         if (value !== 0) {
           transactions.push({
-            id: `xlsx_exp_${rowIndex}_${cat.index}_${Date.now()}`,
+            id: `xlsx_exp_${rowIndex}_${cat.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
             date: dateStr,
             description: cat.name,
             category: cat.name,
@@ -591,7 +669,7 @@ class XLSXParserService {
         const value = this.parseAmount(row[cat.index]);
         if (value !== 0) {
           transactions.push({
-            id: `xlsx_inc_${rowIndex}_${cat.index}_${Date.now()}`,
+            id: `xlsx_inc_${rowIndex}_${cat.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
             date: dateStr,
             description: cat.name,
             category: cat.name,
@@ -775,7 +853,15 @@ class XLSXParserService {
 
         if (format === 'mixed') {
           const analysis = this.analyzeMixedSheet(sheet);
-          transactions = this.parseMixedSheet(sheet, analysis);
+
+          // If we have detail rows, import only those (avoid double counting)
+          if (analysis.detailRowIndices.length > 0) {
+            transactions = this.parseMixedSheet(sheet, analysis);
+          } else if (analysis.summaryRowIndices.length > 0) {
+            // No detail rows - this is a pure monthly summary sheet
+            // Import the summary rows as monthly data
+            transactions = this.parseMixedSummaryOnly(sheet, analysis);
+          }
         } else if (format === 'summary') {
           const mapping = this.inferSummaryMapping(sheet.headers, sheet.rows);
           transactions = this.parseSummaryTransactions(sheet, mapping);
@@ -789,6 +875,37 @@ class XLSXParserService {
     }
 
     return allTransactions;
+  }
+
+  // Parse mixed format sheet with only summary rows (no daily details)
+  private parseMixedSummaryOnly(sheet: SheetData, analysis: MixedSheetAnalysis): Transaction[] {
+    const transactions: Transaction[] = [];
+
+    // Import summary rows as monthly data (skip totals)
+    for (const rowIndex of analysis.summaryRowIndices) {
+      const row = sheet.rows[rowIndex];
+      const dateStr = this.parseDateFromFirstColumn(row[0] || '');
+
+      // Process each category column
+      for (const col of analysis.categoryColumns) {
+        const value = this.parseAmount(row[col.index]);
+        if (value === 0) continue;
+
+        // Determine type by sign: negative = expense, positive = income
+        const type: 'expense' | 'income' = value < 0 ? 'expense' : 'income';
+
+        transactions.push({
+          id: `xlsx_sum_${rowIndex}_${col.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          date: dateStr,
+          description: col.name,
+          category: col.name,
+          amount: Math.abs(value),
+          type,
+        });
+      }
+    }
+
+    return transactions;
   }
 }
 

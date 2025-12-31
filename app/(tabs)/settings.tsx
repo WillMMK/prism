@@ -160,55 +160,72 @@ export default function Settings() {
   };
 
   // Render mixed format schema
-  const renderMixedSchema = (analysis: MixedSheetAnalysis) => (
-    <View style={styles.card}>
-      <View style={styles.formatBadge}>
-        <Ionicons name="git-branch" size={16} color="#FF9800" />
-        <Text style={styles.formatText}>
-          {analysis.sheetType === 'expense' ? 'Expense Sheet' :
-           analysis.sheetType === 'income' ? 'Income Sheet' : 'Mixed Sheet'}
-        </Text>
-      </View>
+  const renderMixedSchema = (analysis: MixedSheetAnalysis) => {
+    const hasDetailRows = analysis.detailRowIndices.length > 0;
+    const willImportSummaries = !hasDetailRows && analysis.summaryRowIndices.length > 0;
 
-      <View style={styles.categorySection}>
-        <Text style={styles.categoryTitle}>
-          Row Analysis
-        </Text>
-        <View style={styles.rowStats}>
-          <View style={styles.statBox}>
-            <Text style={styles.statNumber}>{analysis.detailRowIndices.length}</Text>
-            <Text style={styles.statDesc}>Detail rows (importing)</Text>
-          </View>
-          <View style={styles.statBox}>
-            <Text style={[styles.statNumber, { color: '#8892b0' }]}>{analysis.summaryRowIndices.length}</Text>
-            <Text style={styles.statDesc}>Summary rows (skipping)</Text>
-          </View>
-          <View style={styles.statBox}>
-            <Text style={[styles.statNumber, { color: '#8892b0' }]}>{analysis.totalRowIndices.length}</Text>
-            <Text style={styles.statDesc}>Total rows (skipping)</Text>
-          </View>
+    return (
+      <View style={styles.card}>
+        <View style={styles.formatBadge}>
+          <Ionicons name="git-branch" size={16} color="#FF9800" />
+          <Text style={styles.formatText}>
+            {willImportSummaries ? 'Monthly Summary Sheet' :
+             analysis.sheetType === 'expense' ? 'Expense Sheet' :
+             analysis.sheetType === 'income' ? 'Income Sheet' : 'Mixed Sheet'}
+          </Text>
         </View>
-      </View>
 
-      <View style={styles.categorySection}>
-        <Text style={styles.categoryTitle}>
-          Categories ({analysis.categoryColumns.length})
-        </Text>
-        <View style={styles.categoryTags}>
-          {analysis.categoryColumns.map((cat, idx) => (
-            <View key={idx} style={[styles.tag, styles.expenseTag]}>
-              <Text style={styles.tagText}>{cat.name}</Text>
+        <View style={styles.categorySection}>
+          <Text style={styles.categoryTitle}>
+            Row Analysis
+          </Text>
+          <View style={styles.rowStats}>
+            <View style={styles.statBox}>
+              <Text style={[styles.statNumber, hasDetailRows ? {} : { color: '#8892b0' }]}>
+                {analysis.detailRowIndices.length}
+              </Text>
+              <Text style={styles.statDesc}>
+                Detail rows {hasDetailRows ? '(importing)' : ''}
+              </Text>
             </View>
-          ))}
+            <View style={styles.statBox}>
+              <Text style={[styles.statNumber, willImportSummaries ? { color: '#4CAF50' } : { color: '#8892b0' }]}>
+                {analysis.summaryRowIndices.length}
+              </Text>
+              <Text style={styles.statDesc}>
+                Summary rows {willImportSummaries ? '(importing)' : '(skipping)'}
+              </Text>
+            </View>
+            <View style={styles.statBox}>
+              <Text style={[styles.statNumber, { color: '#8892b0' }]}>{analysis.totalRowIndices.length}</Text>
+              <Text style={styles.statDesc}>Total rows (skipping)</Text>
+            </View>
+          </View>
         </View>
-      </View>
 
-      <Text style={styles.hint}>
-        Negative values = Expense, Positive values = Income{'\n'}
-        Only daily detail rows will be imported (no double counting)
-      </Text>
-    </View>
-  );
+        <View style={styles.categorySection}>
+          <Text style={styles.categoryTitle}>
+            Categories ({analysis.categoryColumns.length})
+          </Text>
+          <View style={styles.categoryTags}>
+            {analysis.categoryColumns.map((cat, idx) => (
+              <View key={idx} style={[styles.tag, styles.expenseTag]}>
+                <Text style={styles.tagText}>{cat.name}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <Text style={styles.hint}>
+          Negative values = Expense, Positive values = Income{'\n'}
+          {willImportSummaries
+            ? 'Monthly summaries will be imported (no daily data found)'
+            : 'Only daily detail rows will be imported (no double counting)'}
+          {'\n'}Aggregate columns (income, expense, net profit) auto-skipped
+        </Text>
+      </View>
+    );
+  };
 
   // Render summary format schema
   const renderSummarySchema = (mapping: SummaryMapping) => (
@@ -278,6 +295,10 @@ export default function Settings() {
           })}
         </View>
       )}
+
+      <Text style={styles.hint}>
+        Aggregate columns (income, expense, net profit) are auto-detected and skipped
+      </Text>
     </View>
   );
 
