@@ -6,7 +6,7 @@ on:
 jobs:
   expo-tunnel:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 7
 
     steps:
       - name: Checkout code
@@ -92,5 +92,5 @@ jobs:
         if: steps.expo.outputs.EXPO_URL != ''
         run: |
           echo "Server running at: ${{ steps.expo.outputs.EXPO_URL }}"
-          echo "Keeping alive for 8 more minutes..."
-          sleep 480
+          echo "Keeping alive for 5 minutes..."
+          sleep 300

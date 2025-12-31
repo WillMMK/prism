@@ -25,9 +25,9 @@ export interface ParsedFile {
 class XLSXParserService {
   // Parse XLSX file from URI
   async parseFile(fileUri: string): Promise<ParsedFile> {
-    // Read file as base64
+    // Read file as base64 using string literal for encoding
     const base64 = await FileSystem.readAsStringAsync(fileUri, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding: 'base64' as any,
     });
 
     // Parse workbook
