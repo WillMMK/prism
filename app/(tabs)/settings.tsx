@@ -11,7 +11,7 @@ import {
   FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Google from 'expo-auth-session/providers/google';
+import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { googleSheetsService, SheetInfo, ColumnMapping, SpreadsheetFile } from '../../src/services/googleSheets';
 import { useBudgetStore } from '../../src/store/budgetStore';
@@ -20,6 +20,13 @@ WebBrowser.maybeCompleteAuthSession();
 
 // Web client ID for Expo Go
 const GOOGLE_WEB_CLIENT_ID = '907648461438-2q8au98sdpogg0hiu3sc9g5o3uruhqmf.apps.googleusercontent.com';
+
+// Google OAuth discovery document
+const discovery = {
+  authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+  tokenEndpoint: 'https://oauth2.googleapis.com/token',
+  revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
+};
 
 export default function Settings() {
   const [isConnected, setIsConnected] = useState(false);
@@ -33,16 +40,22 @@ export default function Settings() {
 
   const { setSheetsConfig, setTransactions, sheetsConfig } = useBudgetStore();
 
-  // Set up Google OAuth with the Google provider
-  // expoClientId is used for Expo Go (proxied through auth.expo.io)
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    expoClientId: GOOGLE_WEB_CLIENT_ID,
-    webClientId: GOOGLE_WEB_CLIENT_ID,
-    scopes: [
-      'https://www.googleapis.com/auth/spreadsheets.readonly',
-      'https://www.googleapis.com/auth/drive.readonly',
-    ],
-  });
+  // Use Expo's auth proxy for Expo Go compatibility
+  const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
+
+  // Set up Google OAuth
+  const [request, response, promptAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: GOOGLE_WEB_CLIENT_ID,
+      redirectUri,
+      scopes: [
+        'https://www.googleapis.com/auth/spreadsheets.readonly',
+        'https://www.googleapis.com/auth/drive.readonly',
+      ],
+      responseType: AuthSession.ResponseType.Token,
+    },
+    discovery
+  );
 
   // Check for stored token on mount
   useEffect(() => {
@@ -52,8 +65,8 @@ export default function Settings() {
   // Handle OAuth response
   useEffect(() => {
     if (response?.type === 'success') {
-      // Google provider returns authentication object
-      const accessToken = response.authentication?.accessToken;
+      // AuthSession returns access_token in params
+      const accessToken = response.params?.access_token;
       if (accessToken) {
         handleAuthSuccess(accessToken);
       }
