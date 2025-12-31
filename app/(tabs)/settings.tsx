@@ -188,15 +188,29 @@ export default function Settings() {
       {mapping.totalColumns.length > 0 && (
         <View style={styles.categorySection}>
           <Text style={styles.categoryTitle}>
-            <Ionicons name="calculator" size={14} color="#8892b0" /> Summary Columns (skipped)
+            <Ionicons name="calculator" size={14} color="#8892b0" /> Sum Columns (auto-detected, skipped)
           </Text>
-          <View style={styles.categoryTags}>
-            {mapping.totalColumns.map((col, idx) => (
-              <View key={idx} style={[styles.tag, styles.summaryTag]}>
-                <Text style={styles.tagText}>{col.name}</Text>
+          {mapping.totalColumns.map((col, idx) => {
+            // Find what columns this sums
+            const sumOfNames = col.sumOf?.map(colIdx => {
+              const found = [...mapping.expenseCategories, ...mapping.incomeCategories]
+                .find(c => c.index === colIdx);
+              return found?.name || `Col${colIdx}`;
+            }) || [];
+
+            return (
+              <View key={idx} style={styles.sumColumnInfo}>
+                <View style={[styles.tag, styles.summaryTag]}>
+                  <Text style={styles.tagText}>{col.name}</Text>
+                </View>
+                {sumOfNames.length > 0 && (
+                  <Text style={styles.sumOfText}>
+                    = {sumOfNames.join(' + ')}
+                  </Text>
+                )}
               </View>
-            ))}
-          </View>
+            );
+          })}
         </View>
       )}
     </View>
@@ -544,6 +558,18 @@ const styles = StyleSheet.create({
   noneText: {
     color: '#8892b0',
     fontSize: 12,
+    fontStyle: 'italic',
+  },
+  sumColumnInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginBottom: 8,
+    gap: 8,
+  },
+  sumOfText: {
+    color: '#64B5F6',
+    fontSize: 11,
     fontStyle: 'italic',
   },
   schemaRow: {

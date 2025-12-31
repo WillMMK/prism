@@ -17,13 +17,12 @@ export interface ColumnMapping {
   headers: string[];
 }
 
-// New: Summary format detection
 export interface SummaryMapping {
   yearColumn: number | null;
   monthColumn: number | null;
   expenseCategories: { index: number; name: string }[];
   incomeCategories: { index: number; name: string }[];
-  totalColumns: { index: number; name: string; type: 'expense' | 'income' | 'net' }[];
+  totalColumns: { index: number; name: string; type: 'expense' | 'income' | 'net'; sumOf: number[] }[];
 }
 
 export type DataFormat = 'transaction' | 'summary';
@@ -50,13 +49,13 @@ const EXPENSE_KEYWORDS = [
   'maintenance', 'repair', 'service',
   'subscription', 'membership',
   'tax', 'taxes',
-  'rmit', // User's specific category
+  'rmit',
 ];
 
 // Common income category keywords
 const INCOME_KEYWORDS = [
   'salary', 'wage', 'wages', 'pay', 'paycheck',
-  'income', 'earning', 'earnings',
+  'earning', 'earnings',
   'interest', 'dividend', 'dividends',
   'bonus', 'commission',
   'refund', 'rebate', 'cashback',
@@ -64,19 +63,10 @@ const INCOME_KEYWORDS = [
   'rental', 'rent income',
   'investment', 'return',
   'freelance', 'consulting',
-  'package', // salary package
-];
-
-// Summary/total columns to skip when creating transactions
-const SUMMARY_KEYWORDS = [
-  'total', 'sum', 'net', 'gross', 'balance',
-  'expense', 'expenses', 'spending',
-  'income total', 'expense total',
-  'profit', 'loss', 'net profit', 'net income',
+  'package',
 ];
 
 class XLSXParserService {
-  // Parse XLSX file from URI
   async parseFile(fileUri: string): Promise<ParsedFile> {
     const base64 = await FileSystem.readAsStringAsync(fileUri, {
       encoding: 'base64' as any,
@@ -104,7 +94,6 @@ class XLSXParserService {
       }
     }
 
-    // Detect format and infer mappings
     const firstSheet = sheets[0];
     const detectedFormat = firstSheet ? this.detectFormat(firstSheet) : 'transaction';
 
@@ -130,27 +119,18 @@ class XLSXParserService {
     return { sheets, inferredMapping, summaryMapping, detectedFormat };
   }
 
-  // Detect if this is a summary/pivot format or transaction log
   detectFormat(sheet: SheetData): DataFormat {
     const headers = sheet.headers.map(h => h.toLowerCase().trim());
-
-    // Check for YEAR/MONTH columns (common in summary format)
     const hasYearMonth = headers.some(h => h === 'year') && headers.some(h => h === 'month');
-
-    // Count how many columns look like amounts (numeric data)
     const numericColumns = this.countNumericColumns(headers, sheet.rows);
-
-    // Count columns that match expense/income keywords
     const categoryColumns = headers.filter(h =>
       this.isExpenseCategory(h) || this.isIncomeCategory(h)
     ).length;
 
-    // Summary format: has year/month AND multiple numeric category columns
     if (hasYearMonth && categoryColumns >= 3) {
       return 'summary';
     }
 
-    // Summary format: many numeric columns with category-like names
     if (numericColumns >= 5 && categoryColumns >= 3) {
       return 'summary';
     }
@@ -174,7 +154,6 @@ class XLSXParserService {
 
   private isExpenseCategory(header: string): boolean {
     const lower = header.toLowerCase().trim();
-    // Exact match or contains keyword
     return EXPENSE_KEYWORDS.some(kw => lower === kw || lower.includes(kw));
   }
 
@@ -183,12 +162,7 @@ class XLSXParserService {
     return INCOME_KEYWORDS.some(kw => lower === kw || lower.includes(kw));
   }
 
-  private isSummaryColumn(header: string): boolean {
-    const lower = header.toLowerCase().trim();
-    return SUMMARY_KEYWORDS.some(kw => lower === kw || lower.includes(kw));
-  }
-
-  // Infer summary format mapping
+  // Smart summary mapping that analyzes data to find sum columns
   inferSummaryMapping(headers: string[], rows: string[][]): SummaryMapping {
     const mapping: SummaryMapping = {
       yearColumn: null,
@@ -198,10 +172,12 @@ class XLSXParserService {
       totalColumns: [],
     };
 
+    // Step 1: Find year/month columns and identify all numeric columns
+    const numericColumns: number[] = [];
+
     headers.forEach((header, index) => {
       const lower = header.toLowerCase().trim();
 
-      // Find year/month columns
       if (lower === 'year') {
         mapping.yearColumn = index;
         return;
@@ -211,40 +187,55 @@ class XLSXParserService {
         return;
       }
 
-      // Skip empty headers
       if (!header.trim()) return;
 
-      // Check if this column has numeric data
       const sampleValues = rows.slice(0, 10).map(row => row[index] || '');
-      const isNumeric = this.looksLikeAmount(sampleValues);
+      if (this.looksLikeAmount(sampleValues)) {
+        numericColumns.push(index);
+      }
+    });
 
-      if (!isNumeric) return;
+    // Step 2: Analyze data to find which columns are sums of other columns
+    const sumColumns = this.detectSumColumns(headers, rows, numericColumns);
 
-      // Categorize the column
-      if (this.isSummaryColumn(header)) {
-        // Determine if it's expense total, income total, or net
-        let type: 'expense' | 'income' | 'net' = 'expense';
-        if (lower.includes('income') && !lower.includes('net')) {
-          type = 'income';
-        } else if (lower.includes('net') || lower.includes('profit')) {
-          type = 'net';
+    // Step 3: Columns that are NOT sum columns are the actual categories
+    const categoryColumns = numericColumns.filter(idx => !sumColumns.has(idx));
+
+    // Step 4: Categorize each non-sum column as expense or income
+    categoryColumns.forEach(index => {
+      const header = headers[index];
+      const lower = header.toLowerCase().trim();
+
+      // Check if this column is part of an expense sum or income sum
+      let isPartOfExpenseSum = false;
+      let isPartOfIncomeSum = false;
+
+      sumColumns.forEach((sumOf, sumIdx) => {
+        if (sumOf.includes(index)) {
+          const sumHeader = headers[sumIdx].toLowerCase();
+          if (sumHeader.includes('expense') || sumHeader === 'expense') {
+            isPartOfExpenseSum = true;
+          } else if (sumHeader.includes('income') || sumHeader === 'income') {
+            isPartOfIncomeSum = true;
+          }
         }
-        mapping.totalColumns.push({ index, name: header, type });
-      } else if (this.isIncomeCategory(header)) {
+      });
+
+      // Determine type based on what sum it belongs to, then name hints
+      if (isPartOfExpenseSum) {
+        mapping.expenseCategories.push({ index, name: header });
+      } else if (isPartOfIncomeSum) {
         mapping.incomeCategories.push({ index, name: header });
       } else if (this.isExpenseCategory(header)) {
         mapping.expenseCategories.push({ index, name: header });
+      } else if (this.isIncomeCategory(header)) {
+        mapping.incomeCategories.push({ index, name: header });
       } else {
-        // Unknown category - try to infer from data
-        // If values are mostly positive and column is after known income columns, might be income
-        // Default to expense for safety
-        const avgValue = this.getAverageValue(sampleValues);
-
-        // Heuristic: names that look like person names might be income sources
+        // Unknown - use heuristics
         const looksLikePersonName = /^[A-Z][a-z]+$/.test(header.trim());
+        const avgValue = this.getAverageValue(rows.slice(0, 10).map(r => r[index] || ''));
 
         if (looksLikePersonName || avgValue > 1000) {
-          // Larger values or person names might be income
           mapping.incomeCategories.push({ index, name: header });
         } else {
           mapping.expenseCategories.push({ index, name: header });
@@ -252,19 +243,189 @@ class XLSXParserService {
       }
     });
 
+    // Step 5: Add detected sum columns to totalColumns
+    sumColumns.forEach((sumOf, index) => {
+      const header = headers[index];
+      const lower = header.toLowerCase().trim();
+
+      let type: 'expense' | 'income' | 'net' = 'expense';
+      if (lower.includes('income') || lower === 'income') {
+        type = 'income';
+      } else if (lower.includes('net') || lower.includes('profit')) {
+        type = 'net';
+      }
+
+      mapping.totalColumns.push({ index, name: header, type, sumOf });
+    });
+
     return mapping;
+  }
+
+  // Detect which columns are sums of other columns by analyzing data
+  private detectSumColumns(
+    headers: string[],
+    rows: string[][],
+    numericColumns: number[]
+  ): Map<number, number[]> {
+    const sumColumns = new Map<number, number[]>();
+    const tolerance = 0.01; // Allow 1% tolerance for floating point
+
+    // For each numeric column, check if it's approximately equal to sum of some other columns
+    numericColumns.forEach(potentialSumCol => {
+      // Try to find a subset of other columns that sum to this column
+      const otherColumns = numericColumns.filter(c => c !== potentialSumCol);
+
+      // Get values for potential sum column
+      const sumValues = rows.map(row => this.parseAmount(row[potentialSumCol]));
+
+      // Skip columns with all zeros or very small values
+      const nonZeroCount = sumValues.filter(v => Math.abs(v) > 0.01).length;
+      if (nonZeroCount < Math.min(3, rows.length * 0.3)) return;
+
+      // Try different subsets - start with finding consecutive column groups
+      // that might sum to this column
+      const foundSubset = this.findSumSubset(rows, potentialSumCol, otherColumns, tolerance);
+
+      if (foundSubset && foundSubset.length >= 2) {
+        sumColumns.set(potentialSumCol, foundSubset);
+      }
+    });
+
+    return sumColumns;
+  }
+
+  // Find a subset of columns that sum to the target column
+  private findSumSubset(
+    rows: string[][],
+    targetCol: number,
+    candidateCols: number[],
+    tolerance: number
+  ): number[] | null {
+    const sampleRows = rows.slice(0, Math.min(10, rows.length));
+
+    // Try finding consecutive groups that sum correctly
+    // This is a greedy approach - try adding columns one by one
+
+    // Sort candidates by their position (consecutive columns often belong together)
+    const sortedCandidates = [...candidateCols].sort((a, b) => a - b);
+
+    // Try to find a group of columns that sums to target
+    for (let startIdx = 0; startIdx < sortedCandidates.length; startIdx++) {
+      let currentSubset: number[] = [];
+      let matchCount = 0;
+
+      for (let endIdx = startIdx; endIdx < sortedCandidates.length; endIdx++) {
+        currentSubset.push(sortedCandidates[endIdx]);
+
+        // Check if current subset sums to target across all sample rows
+        let allMatch = true;
+        let validRows = 0;
+
+        for (const row of sampleRows) {
+          const targetVal = this.parseAmount(row[targetCol]);
+          const subsetSum = currentSubset.reduce(
+            (sum, col) => sum + this.parseAmount(row[col]),
+            0
+          );
+
+          // Skip rows where both are zero (empty data)
+          if (Math.abs(targetVal) < 0.01 && Math.abs(subsetSum) < 0.01) {
+            continue;
+          }
+
+          validRows++;
+
+          // Check if they match within tolerance
+          const diff = Math.abs(targetVal - subsetSum);
+          const maxVal = Math.max(Math.abs(targetVal), Math.abs(subsetSum), 1);
+
+          if (diff / maxVal > tolerance) {
+            allMatch = false;
+            break;
+          }
+        }
+
+        // If we have enough valid rows and all match, we found it!
+        if (allMatch && validRows >= Math.min(3, sampleRows.length * 0.5)) {
+          if (currentSubset.length >= 2) {
+            return currentSubset;
+          }
+        }
+      }
+    }
+
+    // Also try non-consecutive combinations for smaller sets
+    if (candidateCols.length <= 10) {
+      // Try all pairs
+      for (let i = 0; i < candidateCols.length; i++) {
+        for (let j = i + 1; j < candidateCols.length; j++) {
+          const subset = [candidateCols[i], candidateCols[j]];
+          if (this.checkSubsetMatch(rows, targetCol, subset, tolerance)) {
+            return subset;
+          }
+        }
+      }
+
+      // Try triples
+      for (let i = 0; i < candidateCols.length; i++) {
+        for (let j = i + 1; j < candidateCols.length; j++) {
+          for (let k = j + 1; k < candidateCols.length; k++) {
+            const subset = [candidateCols[i], candidateCols[j], candidateCols[k]];
+            if (this.checkSubsetMatch(rows, targetCol, subset, tolerance)) {
+              return subset;
+            }
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private checkSubsetMatch(
+    rows: string[][],
+    targetCol: number,
+    subset: number[],
+    tolerance: number
+  ): boolean {
+    const sampleRows = rows.slice(0, Math.min(10, rows.length));
+    let validRows = 0;
+    let matchCount = 0;
+
+    for (const row of sampleRows) {
+      const targetVal = this.parseAmount(row[targetCol]);
+      const subsetSum = subset.reduce(
+        (sum, col) => sum + this.parseAmount(row[col]),
+        0
+      );
+
+      if (Math.abs(targetVal) < 0.01 && Math.abs(subsetSum) < 0.01) {
+        continue;
+      }
+
+      validRows++;
+
+      const diff = Math.abs(targetVal - subsetSum);
+      const maxVal = Math.max(Math.abs(targetVal), Math.abs(subsetSum), 1);
+
+      if (diff / maxVal <= tolerance) {
+        matchCount++;
+      }
+    }
+
+    // At least 80% of valid rows should match
+    return validRows >= 2 && matchCount >= validRows * 0.8;
   }
 
   private getAverageValue(values: string[]): number {
     const nums = values
-      .map(v => parseFloat(v.replace(/[,$]/g, '')))
+      .map(v => this.parseAmount(v))
       .filter(n => !isNaN(n) && n !== 0);
 
     if (nums.length === 0) return 0;
     return nums.reduce((a, b) => a + b, 0) / nums.length;
   }
 
-  // Parse summary format into transactions (unpivot)
   parseSummaryTransactions(
     sheetData: SheetData,
     mapping: SummaryMapping
@@ -272,7 +433,6 @@ class XLSXParserService {
     const transactions: Transaction[] = [];
 
     sheetData.rows.forEach((row, rowIndex) => {
-      // Build date from YEAR/MONTH
       let year = new Date().getFullYear();
       let month = 1;
 
@@ -286,7 +446,7 @@ class XLSXParserService {
 
       const dateStr = `${year}-${String(month).padStart(2, '0')}-01`;
 
-      // Create transactions for each expense category
+      // Create transactions for expense categories only (not sum columns)
       mapping.expenseCategories.forEach(cat => {
         const value = this.parseAmount(row[cat.index]);
         if (value !== 0) {
@@ -301,7 +461,7 @@ class XLSXParserService {
         }
       });
 
-      // Create transactions for each income category
+      // Create transactions for income categories only (not sum columns)
       mapping.incomeCategories.forEach(cat => {
         const value = this.parseAmount(row[cat.index]);
         if (value !== 0) {
@@ -323,13 +483,11 @@ class XLSXParserService {
   private parseMonth(monthVal: string): number {
     if (!monthVal) return 1;
 
-    // Try numeric
     const num = parseInt(monthVal);
     if (!isNaN(num) && num >= 1 && num <= 12) {
       return num;
     }
 
-    // Try month name
     const monthNames: { [key: string]: number } = {
       'jan': 1, 'january': 1,
       'feb': 2, 'february': 2,
@@ -353,7 +511,6 @@ class XLSXParserService {
     if (!val) return 0;
     const cleaned = String(val).replace(/[$,£€\s]/g, '').trim();
 
-    // Handle accounting format
     if (cleaned.startsWith('(') && cleaned.endsWith(')')) {
       return -Math.abs(parseFloat(cleaned.slice(1, -1)) || 0);
     }
@@ -361,7 +518,6 @@ class XLSXParserService {
     return parseFloat(cleaned) || 0;
   }
 
-  // Original transaction log schema inference
   inferSchema(headers: string[], sampleRows: string[][]): ColumnMapping {
     const mapping: ColumnMapping = {
       dateColumn: null,
@@ -390,7 +546,6 @@ class XLSXParserService {
       }
     });
 
-    // Infer from data patterns if headers didn't match
     if (sampleRows.length > 0) {
       headers.forEach((_, index) => {
         const sampleValues = sampleRows.slice(0, 5).map(row => row[index] || '');
@@ -454,7 +609,6 @@ class XLSXParserService {
     return textCount >= values.length * 0.4;
   }
 
-  // Parse traditional transaction log format
   parseTransactions(
     sheetData: SheetData,
     mapping: ColumnMapping
@@ -517,19 +671,16 @@ class XLSXParserService {
     return new Date().toISOString().split('T')[0];
   }
 
-  // Main method to parse all selected sheets
   parseAllSheets(parsedFile: ParsedFile, selectedSheets: string[]): Transaction[] {
     const allTransactions: Transaction[] = [];
 
     for (const sheet of parsedFile.sheets) {
       if (selectedSheets.includes(sheet.name)) {
         if (parsedFile.detectedFormat === 'summary' && parsedFile.summaryMapping) {
-          // Use summary parser (unpivot)
           const sheetMapping = this.inferSummaryMapping(sheet.headers, sheet.rows);
           const transactions = this.parseSummaryTransactions(sheet, sheetMapping);
           allTransactions.push(...transactions);
         } else {
-          // Use transaction log parser
           const mapping = this.inferSchema(sheet.headers, sheet.rows);
           const transactions = this.parseTransactions(sheet, mapping);
           allTransactions.push(...transactions);
