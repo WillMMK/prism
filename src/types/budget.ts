@@ -51,3 +51,32 @@ export interface ChartData {
     strokeWidth?: number;
   }[];
 }
+
+export interface YearlyReport {
+  year: number;
+  totalIncome: number;
+  totalExpenses: number;
+  savings: number;
+  savingsRate: number;
+  monthlyAvgIncome: number;
+  monthlyAvgExpense: number;
+}
+
+export interface YearOverYearComparison {
+  month: number; // 1-12
+  monthName: string;
+  years: {
+    year: number;
+    income: number;
+    expenses: number;
+    savings: number;
+  }[];
+}
+
+export interface TrendData {
+  type: 'income' | 'expense' | 'savings';
+  direction: 'up' | 'down' | 'stable';
+  percentChange: number;
+  recentAvg: number;
+  previousAvg: number;
+}

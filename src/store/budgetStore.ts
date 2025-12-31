@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Transaction, Category, GoogleSheetsConfig, BudgetSummary, CategorySpending, MonthlyReport } from '../types/budget';
+import { Transaction, Category, GoogleSheetsConfig, BudgetSummary, CategorySpending, MonthlyReport, YearlyReport, YearOverYearComparison, TrendData } from '../types/budget';
 
 export interface ImportMetadata {
   lastImportDate: string;
@@ -34,6 +34,10 @@ interface BudgetState {
   getCategorySpending: () => CategorySpending[];
   getMonthlyReports: (months?: number) => MonthlyReport[];
   getRecentTransactions: (limit?: number) => Transaction[];
+  getYearlyReports: () => YearlyReport[];
+  getYearOverYearComparison: () => YearOverYearComparison[];
+  getTrends: () => TrendData[];
+  getAvailableYears: () => number[];
 }
 
 const defaultCategories: Category[] = [
@@ -168,6 +172,177 @@ export const useBudgetStore = create<BudgetState>()(
         return [...transactions]
           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
           .slice(0, limit);
+      },
+
+      getAvailableYears: () => {
+        const { transactions } = get();
+        const years = new Set<number>();
+        transactions.forEach((t) => {
+          const year = new Date(t.date).getFullYear();
+          if (!isNaN(year)) years.add(year);
+        });
+        return Array.from(years).sort((a, b) => b - a);
+      },
+
+      getYearlyReports: () => {
+        const { transactions } = get();
+        const yearlyData = new Map<number, { income: number; expenses: number; months: Set<number> }>();
+
+        transactions.forEach((t) => {
+          const date = new Date(t.date);
+          const year = date.getFullYear();
+          const month = date.getMonth();
+          if (isNaN(year)) return;
+
+          const current = yearlyData.get(year) || { income: 0, expenses: 0, months: new Set<number>() };
+          current.months.add(month);
+          if (t.type === 'income') {
+            current.income += t.amount;
+          } else {
+            current.expenses += t.amount;
+          }
+          yearlyData.set(year, current);
+        });
+
+        return Array.from(yearlyData.entries())
+          .map(([year, data]) => {
+            const monthCount = data.months.size || 1;
+            const savings = data.income - data.expenses;
+            return {
+              year,
+              totalIncome: data.income,
+              totalExpenses: data.expenses,
+              savings,
+              savingsRate: data.income > 0 ? (savings / data.income) * 100 : 0,
+              monthlyAvgIncome: data.income / monthCount,
+              monthlyAvgExpense: data.expenses / monthCount,
+            };
+          })
+          .sort((a, b) => b.year - a.year);
+      },
+
+      getYearOverYearComparison: () => {
+        const { transactions } = get();
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+        // Group by month and year
+        const monthYearData = new Map<string, { income: number; expenses: number }>();
+        const allYears = new Set<number>();
+
+        transactions.forEach((t) => {
+          const date = new Date(t.date);
+          const year = date.getFullYear();
+          const month = date.getMonth() + 1;
+          if (isNaN(year)) return;
+
+          allYears.add(year);
+          const key = `${month}-${year}`;
+          const current = monthYearData.get(key) || { income: 0, expenses: 0 };
+          if (t.type === 'income') {
+            current.income += t.amount;
+          } else {
+            current.expenses += t.amount;
+          }
+          monthYearData.set(key, current);
+        });
+
+        const yearsArray = Array.from(allYears).sort((a, b) => a - b);
+
+        // Build comparison for each month
+        const comparisons: YearOverYearComparison[] = [];
+        for (let month = 1; month <= 12; month++) {
+          const yearsData = yearsArray.map((year) => {
+            const key = `${month}-${year}`;
+            const data = monthYearData.get(key) || { income: 0, expenses: 0 };
+            return {
+              year,
+              income: data.income,
+              expenses: data.expenses,
+              savings: data.income - data.expenses,
+            };
+          }).filter((d) => d.income > 0 || d.expenses > 0);
+
+          if (yearsData.length > 0) {
+            comparisons.push({
+              month,
+              monthName: monthNames[month - 1],
+              years: yearsData,
+            });
+          }
+        }
+
+        return comparisons;
+      },
+
+      getTrends: () => {
+        const { transactions } = get();
+        const trends: TrendData[] = [];
+
+        // Get monthly totals sorted by date
+        const monthlyTotals = new Map<string, { income: number; expenses: number }>();
+        transactions.forEach((t) => {
+          const date = new Date(t.date);
+          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          const current = monthlyTotals.get(monthKey) || { income: 0, expenses: 0 };
+          if (t.type === 'income') {
+            current.income += t.amount;
+          } else {
+            current.expenses += t.amount;
+          }
+          monthlyTotals.set(monthKey, current);
+        });
+
+        const sortedMonths = Array.from(monthlyTotals.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]));
+
+        if (sortedMonths.length < 2) return trends;
+
+        // Calculate trends (compare recent 3 months vs previous 3 months)
+        const recentMonths = sortedMonths.slice(-3);
+        const previousMonths = sortedMonths.slice(-6, -3);
+
+        if (previousMonths.length === 0) return trends;
+
+        const calcAvg = (months: typeof sortedMonths, type: 'income' | 'expenses') =>
+          months.reduce((sum, [, data]) => sum + data[type], 0) / months.length;
+
+        // Income trend
+        const recentIncome = calcAvg(recentMonths, 'income');
+        const prevIncome = calcAvg(previousMonths, 'income');
+        const incomeChange = prevIncome > 0 ? ((recentIncome - prevIncome) / prevIncome) * 100 : 0;
+        trends.push({
+          type: 'income',
+          direction: incomeChange > 5 ? 'up' : incomeChange < -5 ? 'down' : 'stable',
+          percentChange: incomeChange,
+          recentAvg: recentIncome,
+          previousAvg: prevIncome,
+        });
+
+        // Expense trend
+        const recentExpense = calcAvg(recentMonths, 'expenses');
+        const prevExpense = calcAvg(previousMonths, 'expenses');
+        const expenseChange = prevExpense > 0 ? ((recentExpense - prevExpense) / prevExpense) * 100 : 0;
+        trends.push({
+          type: 'expense',
+          direction: expenseChange > 5 ? 'up' : expenseChange < -5 ? 'down' : 'stable',
+          percentChange: expenseChange,
+          recentAvg: recentExpense,
+          previousAvg: prevExpense,
+        });
+
+        // Savings trend
+        const recentSavings = recentIncome - recentExpense;
+        const prevSavings = prevIncome - prevExpense;
+        const savingsChange = prevSavings !== 0 ? ((recentSavings - prevSavings) / Math.abs(prevSavings)) * 100 : 0;
+        trends.push({
+          type: 'savings',
+          direction: savingsChange > 5 ? 'up' : savingsChange < -5 ? 'down' : 'stable',
+          percentChange: savingsChange,
+          recentAvg: recentSavings,
+          previousAvg: prevSavings,
+        });
+
+        return trends;
       },
     }),
     {
