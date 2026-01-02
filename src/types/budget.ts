@@ -42,6 +42,8 @@ export interface GoogleSheetsConfig {
   sheetName: string;
   isConnected: boolean;
   lastSync?: string;
+  selectedTabs?: string[];
+  lastKnownTabs?: string[];
 }
 
 export interface ChartData {

@@ -16,7 +16,17 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.willmmk.budgetreport",
-      "buildNumber": "1"
+      "buildNumber": "4",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.907648461438-lttve08jch0tc7639k16hill7smkbqur"
+            ]
+          }
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -29,7 +39,7 @@
     },
     "web": {
       "favicon": "./assets/favicon.png",
-      "bundler": "metro"
+      "bundler": "webpack"
     },
     "plugins": [
       "expo-router",
@@ -39,9 +49,11 @@
       "typedRoutes": true
     },
     "extra": {
+      "router": {},
       "eas": {
-        "projectId": "budget-tracker-2026"
+        "projectId": "66bc7b84-21b9-46fc-812d-4cbdbcc0c3d8"
       }
-    }
+    },
+    "owner": "mmk10014616"
   }
 }

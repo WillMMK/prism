@@ -1,11 +1,15 @@
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
-import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
+import type * as SecureStoreType from 'expo-secure-store';
 import { Transaction } from '../types/budget';
+import { xlsxParser, SheetData, ParsedFile } from './xlsxParser';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const GOOGLE_CLIENT_ID = '907648461438-2q8au98sdpogg0hiu3sc9g5o3uruhqmf.apps.googleusercontent.com';
+const GOOGLE_WEB_CLIENT_ID = '907648461438-2q8au98sdpogg0hiu3sc9g5o3uruhqmf.apps.googleusercontent.com';
+const GOOGLE_IOS_CLIENT_ID = '907648461438-lttve08jch0tc7639k16hill7smkbqur.apps.googleusercontent.com';
+const GOOGLE_ANDROID_CLIENT_ID = '';
 const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets.readonly',
   'https://www.googleapis.com/auth/drive.readonly',
@@ -15,6 +19,14 @@ const discovery = {
   authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
   tokenEndpoint: 'https://oauth2.googleapis.com/token',
   revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
+};
+
+export const GOOGLE_AUTH_CONFIG = {
+  webClientId: GOOGLE_WEB_CLIENT_ID,
+  iosClientId: GOOGLE_IOS_CLIENT_ID,
+  androidClientId: GOOGLE_ANDROID_CLIENT_ID,
+  scopes: SCOPES,
+  discovery,
 };
 
 export interface SpreadsheetFile {
@@ -46,22 +58,45 @@ export interface InferredSchema {
 
 export class GoogleSheetsService {
   private accessToken: string | null = null;
+  private secureStore: typeof SecureStoreType | null = null;
+  private readonly webTokenKey = 'google_access_token';
+
+  private getSecureStore(): typeof SecureStoreType {
+    if (!this.secureStore) {
+      this.secureStore = require('expo-secure-store') as typeof SecureStoreType;
+    }
+    return this.secureStore;
+  }
 
   async getStoredToken(): Promise<string | null> {
     try {
-      return await SecureStore.getItemAsync('google_access_token');
+      if (Platform.OS === 'web') {
+        return localStorage.getItem(this.webTokenKey);
+      }
+      const secureStore = this.getSecureStore();
+      return await secureStore.getItemAsync(this.webTokenKey);
     } catch {
       return null;
     }
   }
 
   async storeToken(token: string): Promise<void> {
-    await SecureStore.setItemAsync('google_access_token', token);
+    if (Platform.OS === 'web') {
+      localStorage.setItem(this.webTokenKey, token);
+    } else {
+      const secureStore = this.getSecureStore();
+      await secureStore.setItemAsync(this.webTokenKey, token);
+    }
     this.accessToken = token;
   }
 
   async clearToken(): Promise<void> {
-    await SecureStore.deleteItemAsync('google_access_token');
+    if (Platform.OS === 'web') {
+      localStorage.removeItem(this.webTokenKey);
+    } else {
+      const secureStore = this.getSecureStore();
+      await secureStore.deleteItemAsync(this.webTokenKey);
+    }
     this.accessToken = null;
   }
 
@@ -310,6 +345,27 @@ export class GoogleSheetsService {
     return textCount >= values.length * 0.4;
   }
 
+  private normalizeSheetData(sheetName: string, data: string[][]): SheetData | null {
+    if (!data || data.length === 0) return null;
+    const maxColumns = Math.max(0, ...data.map(row => row.length));
+    const headerRow = data[0] || [];
+    const hasHeader = this.isLikelyHeaderRow(headerRow, data.slice(1));
+    const headers = hasHeader
+      ? Array.from({ length: maxColumns }, (_, index) => String(headerRow[index] ?? ''))
+      : Array.from({ length: maxColumns }, () => '');
+    const rawRows = hasHeader ? data.slice(1) : data;
+    const rows = rawRows.map(row =>
+      Array.from({ length: maxColumns }, (_, index) => String((row || [])[index] ?? ''))
+    );
+
+    return {
+      name: sheetName,
+      headers,
+      rows,
+      rowCount: rows.length,
+    };
+  }
+
   // Parse transactions using inferred or custom mapping
   parseTransactionsWithMapping(
     rows: string[][],
@@ -408,33 +464,37 @@ export class GoogleSheetsService {
     spreadsheetId: string,
     sheetNames: string[]
   ): Promise<Transaction[]> {
-    const allTransactions: Transaction[] = [];
+    const sheets: SheetData[] = [];
 
     for (const sheetName of sheetNames) {
       try {
         const data = await this.fetchSheetData(spreadsheetId, sheetName);
-        if (data.length > 0) {
-          const headerRow = data[0] || [];
-          const hasHeader = this.isLikelyHeaderRow(headerRow, data.slice(1));
-          const maxColumns = Math.max(
-            headerRow.length,
-            0,
-            ...data.map(row => row.length)
-          );
-          const headers = hasHeader
-            ? headerRow
-            : Array.from({ length: maxColumns }, () => '');
-          const dataRows = hasHeader ? data.slice(1) : data;
-          const mapping = this.inferSchema(headers, dataRows);
-          const transactions = this.parseTransactionsWithMapping(data, mapping, hasHeader);
-          allTransactions.push(...transactions);
+        const sheetData = this.normalizeSheetData(sheetName, data);
+        if (sheetData) {
+          sheets.push(sheetData);
         }
       } catch (error) {
         console.warn(`Failed to import sheet ${sheetName}:`, error);
       }
     }
 
-    return allTransactions;
+    if (sheets.length === 0) return [];
+
+    const parsedFile: ParsedFile = {
+      sheets,
+      inferredMapping: {
+        dateColumn: null,
+        descriptionColumn: null,
+        amountColumn: null,
+        categoryColumn: null,
+        headers: [],
+      },
+      summaryMapping: null,
+      mixedAnalysis: null,
+      detectedFormat: 'transaction',
+    };
+
+    return xlsxParser.parseAllSheets(parsedFile, sheetNames);
   }
 }
 

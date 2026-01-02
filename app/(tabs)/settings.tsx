@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,15 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  TextInput,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as AuthSession from 'expo-auth-session';
 import * as DocumentPicker from 'expo-document-picker';
 import { xlsxParser, SheetData, ColumnMapping, ParsedFile, SummaryMapping, MixedSheetAnalysis, DataFormat } from '../../src/services/xlsxParser';
 import { useBudgetStore } from '../../src/store/budgetStore';
+import { googleSheetsService, GOOGLE_AUTH_CONFIG, SpreadsheetFile, SheetInfo } from '../../src/services/googleSheets';
 
 const palette = {
   background: '#F6F3EF',
@@ -29,11 +33,305 @@ const palette = {
 
 export default function Settings() {
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
+  const [googleFiles, setGoogleFiles] = useState<SpreadsheetFile[]>([]);
+  const [googleSheets, setGoogleSheets] = useState<SheetInfo[]>([]);
+  const [selectedSpreadsheet, setSelectedSpreadsheet] = useState<SpreadsheetFile | null>(null);
+  const [selectedGoogleSheets, setSelectedGoogleSheets] = useState<string[]>([]);
+  const [googleSearch, setGoogleSearch] = useState('');
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [googleRowCounts, setGoogleRowCounts] = useState<Record<string, number>>({});
+  const [googleSheetsExpanded, setGoogleSheetsExpanded] = useState(true);
 
-  const { setTransactions, transactions, importMetadata, clearData, _hasHydrated } = useBudgetStore();
+  const {
+    setTransactions,
+    transactions,
+    importMetadata,
+    clearData,
+    _hasHydrated,
+    setSheetsConfig,
+    sheetsConfig,
+  } = useBudgetStore();
+  const iosRedirectUri =
+    'com.googleusercontent.apps.907648461438-lttve08jch0tc7639k16hill7smkbqur:/oauthredirect';
+  const redirectUri = Platform.select({
+    ios: iosRedirectUri,
+    android: AuthSession.makeRedirectUri({
+      useProxy: false,
+      scheme: 'budget-tracker',
+      path: 'oauthredirect',
+    }),
+    default: AuthSession.makeRedirectUri({ useProxy: false }),
+  }) as string;
+  const clientId = Platform.select({
+    ios: GOOGLE_AUTH_CONFIG.iosClientId,
+    android: GOOGLE_AUTH_CONFIG.androidClientId || GOOGLE_AUTH_CONFIG.webClientId,
+    default: GOOGLE_AUTH_CONFIG.webClientId,
+  }) as string;
+  const [request, response, promptAsync] = AuthSession.useAuthRequest(
+    {
+      clientId,
+      scopes: GOOGLE_AUTH_CONFIG.scopes,
+      redirectUri,
+      responseType: AuthSession.ResponseType.Code,
+      usePKCE: true,
+    },
+    GOOGLE_AUTH_CONFIG.discovery
+  );
+
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const code =
+        (response as AuthSession.AuthSessionResult & { params?: { code?: string } }).params?.code;
+      if (!code || !request?.codeVerifier) {
+        Alert.alert('Google Sign-in Failed', 'No auth code returned.');
+        return;
+      }
+
+      AuthSession.exchangeCodeAsync(
+        {
+          clientId,
+          code,
+          redirectUri,
+          extraParams: {
+            code_verifier: request.codeVerifier,
+          },
+        },
+        GOOGLE_AUTH_CONFIG.discovery
+      )
+        .then((tokenResult) => {
+          if (!tokenResult.accessToken) {
+            throw new Error('No access token returned.');
+          }
+          return googleSheetsService.storeToken(tokenResult.accessToken);
+        })
+        .then(() => {
+          setGoogleConnected(true);
+          return loadSpreadsheets();
+        })
+        .catch((error) => {
+          Alert.alert('Google Sign-in Failed', error.message || 'Unable to complete sign-in.');
+        });
+    }
+  }, [response]);
+
+  useEffect(() => {
+    googleSheetsService.getStoredToken().then((token) => {
+      if (token) {
+        setGoogleConnected(true);
+        loadSpreadsheets();
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (sheetsConfig.spreadsheetId && sheetsConfig.selectedTabs?.length) {
+      setSelectedGoogleSheets(sheetsConfig.selectedTabs);
+    }
+  }, [sheetsConfig.spreadsheetId, sheetsConfig.selectedTabs]);
+
+  const loadSpreadsheets = async () => {
+    setIsGoogleLoading(true);
+    try {
+      const files = await googleSheetsService.listSpreadsheets();
+      setGoogleFiles(files);
+      if (sheetsConfig.spreadsheetId) {
+        const match = files.find((file) => file.id === sheetsConfig.spreadsheetId) || null;
+        setSelectedSpreadsheet(match);
+        if (match) {
+          setSelectedGoogleSheets(sheetsConfig.selectedTabs || []);
+        }
+      }
+    } catch (error: any) {
+      Alert.alert('Google Sheets', error.message || 'Failed to load spreadsheets.');
+      setGoogleConnected(false);
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
+  const loadSpreadsheetTabs = async (file: SpreadsheetFile) => {
+    setIsGoogleLoading(true);
+    try {
+      const sheets = await googleSheetsService.getSpreadsheetInfo(file.id);
+      setGoogleSheets(sheets);
+      setSelectedSpreadsheet(file);
+      setSelectedGoogleSheets(sheets.map((sheet) => sheet.title));
+      setGoogleRowCounts({});
+
+      sheets.forEach(async (sheet) => {
+        try {
+          const data = await googleSheetsService.fetchSheetData(file.id, sheet.title);
+          setGoogleRowCounts((prev) => ({ ...prev, [sheet.title]: data.length }));
+        } catch {
+          setGoogleRowCounts((prev) => ({ ...prev, [sheet.title]: sheet.rowCount }));
+        }
+      });
+    } catch (error: any) {
+      Alert.alert('Google Sheets', error.message || 'Failed to load sheet tabs.');
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
+  const toggleGoogleSheet = (sheetName: string) => {
+    setSelectedGoogleSheets((prev) =>
+      prev.includes(sheetName)
+        ? prev.filter((name) => name !== sheetName)
+        : [...prev, sheetName]
+    );
+  };
+
+  const handleGoogleImport = async () => {
+    if (!selectedSpreadsheet) {
+      Alert.alert('Google Sheets', 'Select a spreadsheet first.');
+      return;
+    }
+    if (selectedGoogleSheets.length === 0) {
+      Alert.alert('Google Sheets', 'Select at least one sheet tab.');
+      return;
+    }
+
+    setIsGoogleLoading(true);
+    try {
+      const importedTransactions = await googleSheetsService.importAllSheets(
+        selectedSpreadsheet.id,
+        selectedGoogleSheets
+      );
+      setTransactions(importedTransactions, {
+        sourceFile: selectedSpreadsheet.name,
+        sheetNames: selectedGoogleSheets,
+      });
+      setSheetsConfig({
+        spreadsheetId: selectedSpreadsheet.id,
+        sheetName: selectedGoogleSheets[0],
+        isConnected: true,
+        selectedTabs: selectedGoogleSheets,
+        lastKnownTabs: googleSheets.map((sheet) => sheet.title),
+        lastSync: new Date().toISOString(),
+      });
+
+      const incomeCount = importedTransactions.filter(t => t.type === 'income').length;
+      const expenseCount = importedTransactions.filter(t => t.type === 'expense').length;
+
+      Alert.alert(
+        'Google Sheets Import',
+        `Imported ${importedTransactions.length} transactions:\n` +
+        `• ${incomeCount} income entries\n` +
+        `• ${expenseCount} expense entries`
+      );
+    } catch (error: any) {
+      Alert.alert('Google Sheets', error.message || 'Failed to import data.');
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
+  const handleGoogleDisconnect = async () => {
+    await googleSheetsService.clearToken();
+    setGoogleConnected(false);
+    setGoogleFiles([]);
+    setGoogleSheets([]);
+    setSelectedSpreadsheet(null);
+    setSelectedGoogleSheets([]);
+    setGoogleSearch('');
+    setGoogleRowCounts({});
+    setSheetsConfig({
+      spreadsheetId: '',
+      sheetName: '',
+      isConnected: false,
+      selectedTabs: [],
+      lastKnownTabs: [],
+      lastSync: undefined,
+    });
+  };
+
+  const handleGoogleSync = async () => {
+    if (!sheetsConfig.spreadsheetId || !sheetsConfig.selectedTabs?.length) {
+      Alert.alert('Google Sheets', 'No saved sheet selection to sync.');
+      return;
+    }
+
+    setIsGoogleLoading(true);
+    try {
+      const availableSheets = await googleSheetsService.getSpreadsheetInfo(sheetsConfig.spreadsheetId);
+      const availableTitles = availableSheets.map((sheet) => sheet.title);
+      const knownTabs = sheetsConfig.lastKnownTabs || sheetsConfig.selectedTabs || [];
+      const newTabs = availableTitles.filter((title) => !knownTabs.includes(title));
+
+      const doSync = async () => {
+        const importedTransactions = await googleSheetsService.importAllSheets(
+          sheetsConfig.spreadsheetId,
+          sheetsConfig.selectedTabs || []
+        );
+        setTransactions(importedTransactions, {
+          sourceFile: selectedSpreadsheet?.name || 'Google Sheets',
+          sheetNames: sheetsConfig.selectedTabs || [],
+        });
+        setSheetsConfig({
+          ...sheetsConfig,
+          lastKnownTabs: availableTitles,
+          lastSync: new Date().toISOString(),
+        });
+
+        const incomeCount = importedTransactions.filter(t => t.type === 'income').length;
+        const expenseCount = importedTransactions.filter(t => t.type === 'expense').length;
+
+        Alert.alert(
+          'Google Sheets Sync',
+          `Synced ${importedTransactions.length} transactions:\n` +
+          `• ${incomeCount} income entries\n` +
+          `• ${expenseCount} expense entries`
+        );
+      };
+
+      if (newTabs.length > 0) {
+        Alert.alert(
+          'New tabs detected',
+          `New tabs found: ${newTabs.slice(0, 5).join(', ')}${newTabs.length > 5 ? '...' : ''}`,
+          [
+            { text: 'Sync existing', onPress: () => doSync() },
+            { text: 'Review tabs', onPress: () => {
+              setSelectedSpreadsheet({
+                id: sheetsConfig.spreadsheetId,
+                name: selectedSpreadsheet?.name || 'Google Sheets',
+                modifiedTime: new Date().toISOString(),
+              });
+              setGoogleSheets(availableSheets);
+              setSelectedGoogleSheets(sheetsConfig.selectedTabs || []);
+              setSheetsConfig({
+                ...sheetsConfig,
+                lastKnownTabs: availableTitles,
+              });
+            }},
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      } else {
+        await doSync();
+      }
+    } catch (error: any) {
+      Alert.alert('Google Sheets', error.message || 'Failed to sync data.');
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
+  const clearSelectedSpreadsheet = () => {
+    setSelectedSpreadsheet(null);
+    setGoogleSheets([]);
+    setSelectedGoogleSheets([]);
+    setGoogleRowCounts({});
+  };
+
+  const filteredGoogleFiles = useMemo(() => {
+    if (!googleSearch.trim()) return googleFiles;
+    const query = googleSearch.toLowerCase();
+    return googleFiles.filter((file) => file.name.toLowerCase().includes(query));
+  }, [googleFiles, googleSearch]);
   const handlePickFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -390,6 +688,155 @@ export default function Settings() {
         </View>
       </View>
 
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Google Sheets</Text>
+        <View style={styles.card}>
+          <Text style={styles.cardDescription}>
+            Connect to Google Drive, pick a spreadsheet, then select which tabs to import.
+          </Text>
+
+          {!googleConnected ? (
+            <TouchableOpacity
+              style={[styles.uploadButton, !request && styles.disabledButton]}
+              onPress={() => promptAsync()}
+              disabled={!request || isGoogleLoading}
+            >
+              {isGoogleLoading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="logo-google" size={20} color="#fff" />
+                  <Text style={styles.uploadButtonText}>Connect Google</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.googleActions}>
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={loadSpreadsheets}
+                disabled={isGoogleLoading}
+              >
+                <Ionicons name="refresh" size={16} color={palette.accent} />
+                <Text style={styles.secondaryButtonText}>Refresh</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.secondaryButton,
+                  (isGoogleLoading || !sheetsConfig.isConnected) && styles.secondaryButtonDisabled,
+                ]}
+                onPress={handleGoogleSync}
+                disabled={isGoogleLoading || !sheetsConfig.isConnected}
+              >
+                <Ionicons name="sync" size={16} color={palette.accent} />
+                <Text style={styles.secondaryButtonText}>Sync</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={handleGoogleDisconnect}
+              >
+                <Ionicons name="log-out-outline" size={16} color={palette.accent} />
+                <Text style={styles.secondaryButtonText}>Disconnect</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {googleConnected && (
+            <View style={styles.googleSection}>
+              <TextInput
+                value={googleSearch}
+                onChangeText={setGoogleSearch}
+                placeholder="Search spreadsheets"
+                placeholderTextColor={palette.muted}
+                style={styles.searchInput}
+              />
+
+              {selectedSpreadsheet ? (
+                <View style={styles.googleSelectedCard}>
+                  <View style={styles.googleRowInfo}>
+                    <Text style={styles.googleRowTitle}>{selectedSpreadsheet.name}</Text>
+                    <Text style={styles.googleRowMeta}>
+                      Updated {new Date(selectedSpreadsheet.modifiedTime).toLocaleDateString()}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.changeButton}
+                    onPress={clearSelectedSpreadsheet}
+                  >
+                    <Text style={styles.changeButtonText}>Change</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : filteredGoogleFiles.length === 0 ? (
+                <Text style={styles.emptyText}>No spreadsheets found.</Text>
+              ) : (
+                <View style={styles.googleList}>
+                  {filteredGoogleFiles.map((file) => (
+                    <TouchableOpacity
+                      key={file.id}
+                      style={styles.googleRow}
+                      onPress={() => loadSpreadsheetTabs(file)}
+                    >
+                      <View style={styles.googleRowInfo}>
+                        <Text style={styles.googleRowTitle}>{file.name}</Text>
+                        <Text style={styles.googleRowMeta}>
+                          Updated {new Date(file.modifiedTime).toLocaleDateString()}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={palette.muted} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
+
+          {selectedSpreadsheet && googleSheets.length > 0 && (
+            <View style={styles.googleSection}>
+              <Text style={styles.sheetHeader}>
+                Tabs in {selectedSpreadsheet.name}
+              </Text>
+              {googleSheets.map((sheet) => (
+                <TouchableOpacity
+                  key={sheet.sheetId}
+                  style={styles.sheetRow}
+                  onPress={() => toggleGoogleSheet(sheet.title)}
+                >
+                  <Ionicons
+                    name={selectedGoogleSheets.includes(sheet.title) ? 'checkbox' : 'square-outline'}
+                    size={24}
+                    color={selectedGoogleSheets.includes(sheet.title) ? palette.positive : palette.muted}
+                  />
+                  <View style={styles.sheetInfo}>
+                    <Text style={styles.sheetName}>{sheet.title}</Text>
+                    <Text style={styles.sheetMeta}>
+                      {(googleRowCounts[sheet.title] ?? sheet.rowCount)} rows, {sheet.columnCount} columns
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+
+              <TouchableOpacity
+                style={[styles.importButton, isGoogleLoading && styles.disabledButton]}
+                onPress={handleGoogleImport}
+                disabled={isGoogleLoading || selectedGoogleSheets.length === 0}
+              >
+                {isGoogleLoading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="download" size={20} color="#fff" />
+                    <Text style={styles.buttonText}>
+                      Import {selectedGoogleSheets.length} Sheet
+                      {selectedGoogleSheets.length !== 1 ? 's' : ''}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </View>
+
       {parsedFile && parsedFile.sheets.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Sheets to Import</Text>
@@ -602,6 +1049,106 @@ const styles = StyleSheet.create({
   uploadButtonText: {
     color: '#fff',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  googleActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  secondaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.wash,
+  },
+  secondaryButtonDisabled: {
+    opacity: 0.6,
+  },
+  secondaryButtonText: {
+    color: palette.accent,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  googleSection: {
+    marginTop: 16,
+  },
+  searchInput: {
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: palette.ink,
+    backgroundColor: '#fff',
+    marginBottom: 12,
+  },
+  emptyText: {
+    color: palette.muted,
+    fontSize: 12,
+    marginTop: 4,
+  },
+  googleList: {
+    gap: 8,
+  },
+  googleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.wash,
+  },
+  googleRowInfo: {
+    flex: 1,
+    marginRight: 10,
+  },
+  googleRowTitle: {
+    color: palette.ink,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  googleRowMeta: {
+    color: palette.muted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  sheetHeader: {
+    color: palette.ink,
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  googleSelectedCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.card,
+  },
+  changeButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.wash,
+  },
+  changeButtonText: {
+    color: palette.accent,
+    fontSize: 12,
     fontWeight: '600',
   },
   fileInfo: {

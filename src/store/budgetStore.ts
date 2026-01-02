@@ -84,6 +84,8 @@ export const useBudgetStore = create<BudgetState>()(
         spreadsheetId: '',
         sheetName: 'Sheet1',
         isConnected: false,
+        selectedTabs: [],
+        lastKnownTabs: [],
       },
       importMetadata: null,
       isLoading: false,
