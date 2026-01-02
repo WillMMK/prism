@@ -13,6 +13,20 @@ import * as DocumentPicker from 'expo-document-picker';
 import { xlsxParser, SheetData, ColumnMapping, ParsedFile, SummaryMapping, MixedSheetAnalysis, DataFormat } from '../../src/services/xlsxParser';
 import { useBudgetStore } from '../../src/store/budgetStore';
 
+const palette = {
+  background: '#F6F3EF',
+  card: '#FFFFFF',
+  ink: '#1E1B16',
+  muted: '#6B645C',
+  accent: '#0F766E',
+  accentSoft: '#D6EFE8',
+  positive: '#2F9E44',
+  negative: '#D64550',
+  border: '#E6DED4',
+  wash: '#F2ECE4',
+  highlight: '#F2A15F',
+};
+
 export default function Settings() {
   const [isLoading, setIsLoading] = useState(false);
   const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null);
@@ -20,7 +34,6 @@ export default function Settings() {
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
 
   const { setTransactions, transactions, importMetadata, clearData, _hasHydrated } = useBudgetStore();
-
   const handlePickFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -167,7 +180,7 @@ export default function Settings() {
     return (
       <View style={styles.card}>
         <View style={styles.formatBadge}>
-          <Ionicons name="git-branch" size={16} color="#FF9800" />
+        <Ionicons name="git-branch" size={16} color={palette.highlight} />
           <Text style={styles.formatText}>
             {willImportSummaries ? 'Monthly Summary Sheet' :
              analysis.sheetType === 'expense' ? 'Expense Sheet' :
@@ -181,7 +194,7 @@ export default function Settings() {
           </Text>
           <View style={styles.rowStats}>
             <View style={styles.statBox}>
-              <Text style={[styles.statNumber, hasDetailRows ? {} : { color: '#8892b0' }]}>
+              <Text style={[styles.statNumber, hasDetailRows ? {} : { color: palette.muted }]}>
                 {analysis.detailRowIndices.length}
               </Text>
               <Text style={styles.statDesc}>
@@ -189,7 +202,7 @@ export default function Settings() {
               </Text>
             </View>
             <View style={styles.statBox}>
-              <Text style={[styles.statNumber, willImportSummaries ? { color: '#4CAF50' } : { color: '#8892b0' }]}>
+              <Text style={[styles.statNumber, willImportSummaries ? { color: palette.positive } : { color: palette.muted }]}>
                 {analysis.summaryRowIndices.length}
               </Text>
               <Text style={styles.statDesc}>
@@ -197,7 +210,7 @@ export default function Settings() {
               </Text>
             </View>
             <View style={styles.statBox}>
-              <Text style={[styles.statNumber, { color: '#8892b0' }]}>{analysis.totalRowIndices.length}</Text>
+              <Text style={[styles.statNumber, { color: palette.muted }]}>{analysis.totalRowIndices.length}</Text>
               <Text style={styles.statDesc}>Total rows (skipping)</Text>
             </View>
           </View>
@@ -231,13 +244,13 @@ export default function Settings() {
   const renderSummarySchema = (mapping: SummaryMapping) => (
     <View style={styles.card}>
       <View style={styles.formatBadge}>
-        <Ionicons name="calendar" size={16} color="#4CAF50" />
+        <Ionicons name="calendar" size={16} color={palette.positive} />
         <Text style={styles.formatText}>Monthly Summary Format</Text>
       </View>
 
       <View style={styles.categorySection}>
         <Text style={styles.categoryTitle}>
-          <Ionicons name="arrow-down-circle" size={14} color="#e94560" /> Expense Categories ({mapping.expenseCategories.length})
+          <Ionicons name="arrow-down-circle" size={14} color={palette.negative} /> Expense Categories ({mapping.expenseCategories.length})
         </Text>
         <View style={styles.categoryTags}>
           {mapping.expenseCategories.map((cat, idx) => (
@@ -253,7 +266,7 @@ export default function Settings() {
 
       <View style={styles.categorySection}>
         <Text style={styles.categoryTitle}>
-          <Ionicons name="arrow-up-circle" size={14} color="#4CAF50" /> Income Categories ({mapping.incomeCategories.length})
+          <Ionicons name="arrow-up-circle" size={14} color={palette.positive} /> Income Categories ({mapping.incomeCategories.length})
         </Text>
         <View style={styles.categoryTags}>
           {mapping.incomeCategories.map((cat, idx) => (
@@ -270,7 +283,7 @@ export default function Settings() {
       {mapping.totalColumns.length > 0 && (
         <View style={styles.categorySection}>
           <Text style={styles.categoryTitle}>
-            <Ionicons name="calculator" size={14} color="#8892b0" /> Sum Columns (auto-detected, skipped)
+            <Ionicons name="calculator" size={14} color={palette.muted} /> Sum Columns (auto-detected, skipped)
           </Text>
           {mapping.totalColumns.map((col, idx) => {
             // Find what columns this sums
@@ -306,7 +319,7 @@ export default function Settings() {
   const renderTransactionSchema = (mapping: ColumnMapping) => (
     <View style={styles.card}>
       <View style={styles.formatBadge}>
-        <Ionicons name="list" size={16} color="#64B5F6" />
+        <Ionicons name="list" size={16} color={palette.accent} />
         <Text style={styles.formatText}>Transaction Log Format</Text>
       </View>
 
@@ -341,7 +354,9 @@ export default function Settings() {
   );
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.backgroundOrb} />
+      <View style={styles.backgroundOrbAlt} />
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Import Data</Text>
         <View style={styles.card}>
@@ -368,7 +383,7 @@ export default function Settings() {
 
           {fileName && (
             <View style={styles.fileInfo}>
-              <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+              <Ionicons name="checkmark-circle" size={20} color={palette.positive} />
               <Text style={styles.fileName} numberOfLines={1}>{fileName}</Text>
             </View>
           )}
@@ -388,7 +403,7 @@ export default function Settings() {
                 <Ionicons
                   name={selectedSheets.includes(sheet.name) ? 'checkbox' : 'square-outline'}
                   size={24}
-                  color={selectedSheets.includes(sheet.name) ? '#4CAF50' : '#8892b0'}
+                  color={selectedSheets.includes(sheet.name) ? palette.positive : palette.muted}
                 />
                 <View style={styles.sheetInfo}>
                   <Text style={styles.sheetName}>{sheet.name}</Text>
@@ -438,7 +453,7 @@ export default function Settings() {
             <Ionicons
               name={_hasHydrated ? 'cloud-done' : 'cloud-outline'}
               size={16}
-              color={_hasHydrated ? '#4CAF50' : '#8892b0'}
+              color={_hasHydrated ? palette.positive : palette.muted}
             />
             <Text style={styles.persistenceText}>
               {_hasHydrated ? 'Data persisted locally' : 'Loading saved data...'}
@@ -449,7 +464,7 @@ export default function Settings() {
             <Ionicons
               name={transactions.length > 0 ? 'checkmark-circle' : 'alert-circle'}
               size={24}
-              color={transactions.length > 0 ? '#4CAF50' : '#8892b0'}
+              color={transactions.length > 0 ? palette.positive : palette.muted}
             />
             <Text style={styles.statusText}>
               {transactions.length > 0
@@ -501,7 +516,7 @@ export default function Settings() {
                 style={styles.clearButton}
                 onPress={handleClearData}
               >
-                <Ionicons name="trash" size={18} color="#e94560" />
+                <Ionicons name="trash" size={18} color={palette.negative} />
                 <Text style={styles.clearButtonText}>Clear All Data</Text>
               </TouchableOpacity>
             </>
@@ -529,25 +544,49 @@ export default function Settings() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
-    padding: 16,
+    backgroundColor: palette.background,
+  },
+  content: {
+    padding: 20,
+  },
+  backgroundOrb: {
+    position: 'absolute',
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: palette.accentSoft,
+    opacity: 0.6,
+    top: -60,
+    right: -80,
+  },
+  backgroundOrbAlt: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: '#FDE7D3',
+    opacity: 0.7,
+    bottom: 160,
+    left: -80,
   },
   section: {
     marginBottom: 24,
   },
   sectionTitle: {
-    color: '#fff',
+    color: palette.ink,
     fontSize: 18,
     fontWeight: '600',
     marginBottom: 12,
   },
   card: {
-    backgroundColor: '#16213e',
-    borderRadius: 12,
+    backgroundColor: palette.card,
+    borderRadius: 16,
     padding: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
   },
   cardDescription: {
-    color: '#8892b0',
+    color: palette.muted,
     fontSize: 14,
     marginBottom: 16,
   },
@@ -555,9 +594,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#e94560',
+    backgroundColor: palette.accent,
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     gap: 10,
   },
   uploadButtonText: {
@@ -570,11 +609,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 12,
     padding: 10,
-    backgroundColor: '#0f3460',
-    borderRadius: 6,
+    backgroundColor: palette.wash,
+    borderRadius: 10,
   },
   fileName: {
-    color: '#fff',
+    color: palette.ink,
     fontSize: 14,
     marginLeft: 8,
     flex: 1,
@@ -584,18 +623,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#0f3460',
+    borderBottomColor: palette.border,
   },
   sheetInfo: {
     marginLeft: 12,
     flex: 1,
   },
   sheetName: {
-    color: '#fff',
+    color: palette.ink,
     fontSize: 16,
+    fontWeight: '600',
   },
   sheetMeta: {
-    color: '#8892b0',
+    color: palette.muted,
     fontSize: 12,
     marginTop: 2,
   },
@@ -603,9 +643,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#4CAF50',
+    backgroundColor: palette.positive,
     padding: 14,
-    borderRadius: 8,
+    borderRadius: 12,
     marginTop: 16,
   },
   disabledButton: {
@@ -620,7 +660,7 @@ const styles = StyleSheet.create({
   formatBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0f3460',
+    backgroundColor: palette.wash,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
@@ -629,7 +669,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   formatText: {
-    color: '#fff',
+    color: palette.ink,
     fontSize: 13,
     fontWeight: '500',
   },
@@ -637,7 +677,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   categoryTitle: {
-    color: '#ccd6f6',
+    color: palette.muted,
     fontSize: 14,
     fontWeight: '500',
     marginBottom: 8,
@@ -653,26 +693,26 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   expenseTag: {
-    backgroundColor: 'rgba(233, 69, 96, 0.2)',
+    backgroundColor: '#FCE8EA',
     borderWidth: 1,
-    borderColor: '#e94560',
+    borderColor: palette.negative,
   },
   incomeTag: {
-    backgroundColor: 'rgba(76, 175, 80, 0.2)',
+    backgroundColor: '#E6F4EA',
     borderWidth: 1,
-    borderColor: '#4CAF50',
+    borderColor: palette.positive,
   },
   summaryTag: {
-    backgroundColor: 'rgba(136, 146, 176, 0.2)',
+    backgroundColor: '#EFE8DD',
     borderWidth: 1,
-    borderColor: '#8892b0',
+    borderColor: palette.border,
   },
   tagText: {
-    color: '#fff',
+    color: palette.ink,
     fontSize: 12,
   },
   noneText: {
-    color: '#8892b0',
+    color: palette.muted,
     fontSize: 12,
     fontStyle: 'italic',
   },
@@ -684,7 +724,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sumOfText: {
-    color: '#64B5F6',
+    color: palette.accent,
     fontSize: 11,
     fontStyle: 'italic',
   },
@@ -698,12 +738,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   statNumber: {
-    color: '#4CAF50',
+    color: palette.positive,
     fontSize: 24,
     fontWeight: '700',
   },
   statDesc: {
-    color: '#8892b0',
+    color: palette.muted,
     fontSize: 10,
     textAlign: 'center',
     marginTop: 4,
@@ -713,14 +753,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#0f3460',
+    borderBottomColor: palette.border,
   },
   schemaLabel: {
-    color: '#8892b0',
+    color: palette.muted,
     fontSize: 14,
   },
   schemaValue: {
-    color: '#fff',
+    color: palette.ink,
     fontSize: 14,
     fontWeight: '500',
   },
@@ -730,10 +770,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#0f3460',
+    borderBottomColor: palette.border,
   },
   persistenceText: {
-    color: '#8892b0',
+    color: palette.muted,
     fontSize: 12,
     marginLeft: 6,
   },
@@ -742,7 +782,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statusText: {
-    color: '#fff',
+    color: palette.ink,
     fontSize: 16,
     marginLeft: 12,
   },
@@ -750,10 +790,10 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#0f3460',
+    borderTopColor: palette.border,
   },
   metadataText: {
-    color: '#8892b0',
+    color: palette.muted,
     fontSize: 12,
     marginBottom: 4,
   },
@@ -763,18 +803,18 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: '#0f3460',
+    borderTopColor: palette.border,
   },
   statItem: {
     alignItems: 'center',
   },
   statValue: {
-    color: '#fff',
+    color: palette.ink,
     fontSize: 20,
     fontWeight: '600',
   },
   statLabel: {
-    color: '#8892b0',
+    color: palette.muted,
     fontSize: 12,
     marginTop: 4,
   },
@@ -785,20 +825,20 @@ const styles = StyleSheet.create({
     marginTop: 16,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#e94560',
-    borderRadius: 8,
+    borderColor: palette.negative,
+    borderRadius: 12,
   },
   clearButtonText: {
-    color: '#e94560',
+    color: palette.negative,
     fontSize: 14,
     marginLeft: 8,
   },
   aboutText: {
-    color: '#fff',
+    color: palette.ink,
     fontSize: 16,
   },
   hint: {
-    color: '#8892b0',
+    color: palette.muted,
     fontSize: 12,
     marginTop: 8,
     lineHeight: 18,

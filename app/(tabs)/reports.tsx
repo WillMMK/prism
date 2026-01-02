@@ -1,52 +1,254 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useBudgetStore } from '../../src/store/budgetStore';
+import { CategorySpending, Transaction } from '../../src/types/budget';
+import { PieChart } from '../../src/components/PieChart';
+import { Sparkline } from '../../src/components/Sparkline';
+
+const palette = {
+  background: '#F6F3EF',
+  card: '#FFFFFF',
+  ink: '#1E1B16',
+  muted: '#6B645C',
+  accent: '#0F766E',
+  accentSoft: '#D6EFE8',
+  positive: '#2F9E44',
+  negative: '#D64550',
+  border: '#E6DED4',
+  wash: '#F2ECE4',
+  highlight: '#F2A15F',
+};
+
+const fallbackCategoryColors = [
+  '#0072B2',
+  '#E69F00',
+  '#009E73',
+  '#D55E00',
+  '#CC79A7',
+  '#56B4E9',
+  '#F0E442',
+  '#000000',
+  '#6A3D9A',
+  '#B15928',
+  '#1B9E77',
+  '#E7298A',
+];
 
 type TabType = 'overview' | 'yearly' | 'trends';
 
+type Scope = 'month' | 'year';
+
+const formatCurrency = (amount: number) =>
+  '$' + amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+const formatCompactCurrency = (amount: number) => {
+  const abs = Math.abs(amount);
+  if (abs >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}m`;
+  if (abs >= 1_000) return `$${(amount / 1_000).toFixed(1)}k`;
+  return `$${amount.toFixed(0)}`;
+};
+
+const formatMonth = (monthStr: string) => {
+  const [year, month] = monthStr.split('-');
+  const date = new Date(parseInt(year, 10), parseInt(month, 10) - 1);
+  return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+};
+
+const getSignedAmount = (transaction: Transaction): number =>
+  typeof transaction.signedAmount === 'number'
+    ? transaction.signedAmount
+    : transaction.type === 'income'
+    ? transaction.amount
+    : -transaction.amount;
+
+const getLatestDate = (transactions: Transaction[]): Date => {
+  const latest = transactions.reduce<Date | null>((max, tx) => {
+    const date = new Date(tx.date);
+    if (isNaN(date.getTime())) return max;
+    if (!max || date > max) return date;
+    return max;
+  }, null);
+
+  return latest || new Date();
+};
+
+const filterTransactionsByScope = (
+  transactions: Transaction[],
+  scope: Scope,
+  latestDate: Date
+) => {
+  const year = latestDate.getFullYear();
+  const month = latestDate.getMonth();
+
+  return transactions.filter((tx) => {
+    const date = new Date(tx.date);
+    if (isNaN(date.getTime())) return false;
+    if (scope === 'month') {
+      return date.getFullYear() === year && date.getMonth() === month;
+    }
+    return date.getFullYear() === year;
+  });
+};
+
+const buildCategorySpending = (
+  transactions: Transaction[],
+  categories: { name: string; color: string }[]
+): CategorySpending[] => {
+  const getCategoryColor = (category: string) => {
+    const match = categories.find((c) => c.name === category)?.color;
+    if (match) return match;
+    let hash = 0;
+    for (let i = 0; i < category.length; i += 1) {
+      hash = (hash * 31 + category.charCodeAt(i)) % 2147483647;
+    }
+    return fallbackCategoryColors[Math.abs(hash) % fallbackCategoryColors.length];
+  };
+
+  const expenses = transactions.filter((tx) => tx.type === 'expense');
+  const totals = new Map<string, number>();
+
+  expenses.forEach((tx) => {
+    const signed = getSignedAmount(tx);
+    const current = totals.get(tx.category) || 0;
+    totals.set(tx.category, current + signed);
+  });
+
+  const netTotals = Array.from(totals.entries())
+    .map(([category, signedTotal]) => {
+      const amount = Math.max(0, -signedTotal);
+      const color = getCategoryColor(category);
+      return { category, amount, color, percentage: 0 };
+    })
+    .filter((item) => item.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+
+  const totalExpenses = netTotals.reduce((sum, item) => sum + item.amount, 0);
+  return netTotals.map((item) => ({
+    ...item,
+    percentage: totalExpenses > 0 ? (item.amount / totalExpenses) * 100 : 0,
+  }));
+};
+
+const ensureDistinctColors = (items: CategorySpending[]) =>
+  items.map((item, index) => ({
+    ...item,
+    color: fallbackCategoryColors[index % fallbackCategoryColors.length],
+  }));
+
 export default function Reports() {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const [categoryScope, setCategoryScope] = useState<Scope>('month');
+  const [timelineScope, setTimelineScope] = useState<Scope>('month');
+  const [focusedYear, setFocusedYear] = useState<number>(new Date().getFullYear());
+  const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<number | null>(null);
+  const [selectedYearCategoryIndex, setSelectedYearCategoryIndex] = useState<number | null>(null);
+  const [selectedTimelineIndex, setSelectedTimelineIndex] = useState<number | null>(null);
+
   const {
     transactions,
+    categories,
     getMonthlyReports,
-    getCategorySpending,
     getYearlyReports,
-    getYearOverYearComparison,
     getTrends,
     getAvailableYears,
   } = useBudgetStore();
 
   const monthlyReports = getMonthlyReports(12);
-  const categorySpending = getCategorySpending();
   const yearlyReports = getYearlyReports();
-  const yoyComparison = getYearOverYearComparison();
   const trends = getTrends();
   const availableYears = getAvailableYears();
 
-  const formatCurrency = (amount: number) => {
-    return '$' + amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  };
+  useEffect(() => {
+    if (availableYears.length > 0 && !availableYears.includes(focusedYear)) {
+      setFocusedYear(availableYears[0]);
+    }
+  }, [availableYears, focusedYear]);
 
-  const formatMonth = (monthStr: string) => {
-    const [year, month] = monthStr.split('-');
-    const date = new Date(parseInt(year), parseInt(month) - 1);
-    return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-  };
+  const latestDate = useMemo(() => getLatestDate(transactions), [transactions]);
+  const scopedTransactions = useMemo(
+    () => filterTransactionsByScope(transactions, categoryScope, latestDate),
+    [transactions, categoryScope, latestDate]
+  );
+  const categorySpending = useMemo(() => {
+    const base = buildCategorySpending(scopedTransactions, categories);
+    return ensureDistinctColors(base);
+  }, [scopedTransactions, categories]);
+
+  const yearTransactions = useMemo(
+    () => transactions.filter((tx) => new Date(tx.date).getFullYear() === focusedYear),
+    [transactions, focusedYear]
+  );
+  const yearCategorySpending = useMemo(() => {
+    const base = buildCategorySpending(yearTransactions, categories);
+    return ensureDistinctColors(base);
+  }, [yearTransactions, categories]);
+
+  const timelineData = useMemo(() => {
+    if (timelineScope === 'year') {
+      return yearlyReports
+        .slice(0, 6)
+        .reverse()
+        .map((report) => ({
+          label: String(report.year),
+          value: report.totalExpenses,
+        }));
+    }
+
+    return monthlyReports
+      .slice(0, 8)
+      .reverse()
+      .map((report) => ({
+        label: formatMonth(report.month).slice(0, 3),
+        value: report.expenses,
+      }));
+  }, [timelineScope, yearlyReports, monthlyReports]);
+
+  const maxTimelineValue = Math.max(...timelineData.map((item) => item.value), 0);
+  const averageTimelineValue =
+    timelineData.length > 0
+      ? timelineData.reduce((sum, item) => sum + item.value, 0) / timelineData.length
+      : 0;
+  const timelineHeight = 140;
+  const timelineLineOffset =
+    maxTimelineValue > 0
+      ? (1 - averageTimelineValue / maxTimelineValue) * timelineHeight
+      : timelineHeight;
+
+  const pieCategories = categorySpending.slice(0, 6);
+  const activeCategory = selectedCategoryIndex === null ? null : pieCategories[selectedCategoryIndex];
+  const totalCategorySpend = pieCategories.reduce((sum, cat) => sum + cat.amount, 0);
+
+  const yearPieCategories = yearCategorySpending.slice(0, 6);
+  const activeYearCategory =
+    selectedYearCategoryIndex === null ? null : yearPieCategories[selectedYearCategoryIndex];
+  const totalYearCategorySpend = yearPieCategories.reduce((sum, cat) => sum + cat.amount, 0);
+
+  const yearlyByYear = useMemo(() => {
+    const map = new Map<number, typeof yearlyReports[number]>();
+    yearlyReports.forEach((report) => map.set(report.year, report));
+    return map;
+  }, [yearlyReports]);
+
+  const trendSeries = useMemo(() => {
+    const chrono = [...monthlyReports].reverse().slice(-6);
+    const income = chrono.map((report) => report.income);
+    const expenses = chrono.map((report) => report.expenses);
+    const savings = chrono.map((report) => report.savings);
+    return { income, expenses, savings };
+  }, [monthlyReports]);
 
   if (transactions.length === 0) {
     return (
       <View style={styles.container}>
         <View style={styles.empty}>
-          <Ionicons name="bar-chart-outline" size={64} color="#8892b0" />
+          <Ionicons name="bar-chart-outline" size={64} color={palette.muted} />
           <Text style={styles.title}>No Reports</Text>
-          <Text style={styles.subtitle}>Import data to see spending reports</Text>
+          <Text style={styles.subtitle}>Import data to see spending reports.</Text>
         </View>
       </View>
     );
   }
-
-  const totalExpenses = categorySpending.reduce((sum, cat) => sum + cat.amount, 0);
 
   const renderTabs = () => (
     <View style={styles.tabContainer}>
@@ -66,267 +268,372 @@ export default function Reports() {
 
   const renderOverview = () => (
     <>
-      {/* Category Breakdown */}
-      <View style={styles.section}>
+      <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Expense Categories</Text>
-        <View style={styles.card}>
-          {categorySpending.slice(0, 8).map((cat, index) => (
-            <View key={index} style={styles.categoryItem}>
-              <View style={styles.categoryHeader}>
-                <View style={styles.categoryLeft}>
-                  <View style={[styles.colorDot, { backgroundColor: cat.color }]} />
-                  <Text style={styles.categoryName}>{cat.category}</Text>
-                </View>
-                <Text style={styles.categoryAmount}>{formatCurrency(cat.amount)}</Text>
-              </View>
-              <View style={styles.barContainer}>
-                <View
-                  style={[
-                    styles.barFill,
-                    { width: `${cat.percentage}%`, backgroundColor: cat.color }
-                  ]}
-                />
-              </View>
-              <Text style={styles.percentage}>{cat.percentage.toFixed(1)}% of total</Text>
-            </View>
+        <View style={styles.segmentedControl}>
+          {(['month', 'year'] as Scope[]).map((scope) => (
+            <TouchableOpacity
+              key={scope}
+              style={[
+                styles.segmentedButton,
+                categoryScope === scope && styles.segmentedButtonActive,
+              ]}
+              onPress={() => setCategoryScope(scope)}
+            >
+              <Text
+                style={[
+                  styles.segmentedText,
+                  categoryScope === scope && styles.segmentedTextActive,
+                ]}
+              >
+                {scope === 'month' ? 'Monthly' : 'Yearly'}
+              </Text>
+            </TouchableOpacity>
           ))}
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total Expenses</Text>
-            <Text style={styles.totalAmount}>{formatCurrency(totalExpenses)}</Text>
-          </View>
         </View>
       </View>
 
-      {/* Monthly Summary (Recent) */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Recent Months</Text>
-        {monthlyReports.slice(0, 6).map((report, index) => (
-          <View key={index} style={styles.monthCard}>
-            <Text style={styles.monthTitle}>{formatMonth(report.month)}</Text>
-            <View style={styles.monthStats}>
-              <View style={styles.monthStat}>
-                <Ionicons name="arrow-up-circle" size={20} color="#4CAF50" />
-                <Text style={styles.monthStatLabel}>Income</Text>
-                <Text style={styles.monthStatIncome}>{formatCurrency(report.income)}</Text>
-              </View>
-              <View style={styles.monthStat}>
-                <Ionicons name="arrow-down-circle" size={20} color="#e94560" />
-                <Text style={styles.monthStatLabel}>Expenses</Text>
-                <Text style={styles.monthStatExpense}>{formatCurrency(report.expenses)}</Text>
-              </View>
-              <View style={styles.monthStat}>
-                <Ionicons
-                  name={report.savings >= 0 ? "trending-up" : "trending-down"}
-                  size={20}
-                  color={report.savings >= 0 ? "#4CAF50" : "#e94560"}
-                />
-                <Text style={styles.monthStatLabel}>Savings</Text>
-                <Text style={[styles.monthStatSavings, report.savings < 0 && styles.negativeSavings]}>
-                  {formatCurrency(report.savings)}
+      <View style={styles.card}>
+        {categorySpending.length === 0 ? (
+          <Text style={styles.emptyChartText}>No expenses for this period.</Text>
+        ) : (
+          <View style={styles.pieLayout}>
+            <View style={styles.pieWrapper}>
+              <PieChart
+                data={pieCategories.map((cat) => ({
+                  value: cat.amount,
+                  color: cat.color,
+                }))}
+                size={200}
+                innerRadius={72}
+                selectedIndex={selectedCategoryIndex}
+                onSlicePress={(index) =>
+                  setSelectedCategoryIndex((prev) => (prev === index ? null : index))
+                }
+              />
+              <View style={styles.pieCenter}>
+                <Text style={styles.pieCenterLabel}>
+                  {activeCategory ? activeCategory.category : 'Total Spend'}
                 </Text>
+                <Text style={styles.pieCenterValue}>
+                  {formatCompactCurrency(activeCategory ? activeCategory.amount : totalCategorySpend)}
+                </Text>
+                {activeCategory && (
+                  <Text style={styles.pieCenterSub}>
+                    {activeCategory.percentage.toFixed(1)}% of total
+                  </Text>
+                )}
               </View>
             </View>
           </View>
-        ))}
+        )}
+        {categorySpending.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.legendChips}
+          >
+            {pieCategories.map((cat, index) => {
+              const isActive = selectedCategoryIndex === index;
+              return (
+                <TouchableOpacity
+                  key={cat.category}
+                  style={[styles.legendChip, isActive && styles.legendChipActive]}
+                  onPress={() => setSelectedCategoryIndex(isActive ? null : index)}
+                >
+                  <View style={[styles.legendDot, { backgroundColor: cat.color }]} />
+                  <Text style={styles.legendChipText} numberOfLines={1}>{cat.category}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
       </View>
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Recent Months</Text>
+        <Text style={styles.sectionHint}>Last 6 months</Text>
+      </View>
+
+      {monthlyReports.slice(0, 6).map((report) => (
+        <View key={report.month} style={styles.monthCard}>
+          <Text style={styles.monthTitle}>{formatMonth(report.month)}</Text>
+          <View style={styles.monthStats}>
+            <View style={styles.monthStat}>
+              <Text style={styles.monthStatLabel}>Income</Text>
+              <Text style={styles.monthStatIncome}>{formatCurrency(report.income)}</Text>
+            </View>
+            <View style={styles.monthStat}>
+              <Text style={styles.monthStatLabel}>Expenses</Text>
+              <Text style={styles.monthStatExpense}>{formatCurrency(report.expenses)}</Text>
+            </View>
+            <View style={styles.monthStat}>
+              <Text style={styles.monthStatLabel}>Savings</Text>
+              <Text style={[styles.monthStatSavings, report.savings < 0 && styles.negativeSavings]}>
+                {formatCurrency(report.savings)}
+              </Text>
+            </View>
+          </View>
+        </View>
+      ))}
     </>
   );
 
   const renderYearly = () => (
     <>
-      {/* Year-by-Year Comparison */}
-      <View style={styles.section}>
+      <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Yearly Summary</Text>
-        {yearlyReports.map((report, index) => (
-          <View key={index} style={styles.yearCard}>
-            <View style={styles.yearHeader}>
-              <Text style={styles.yearTitle}>{report.year}</Text>
-              <View style={[
-                styles.savingsRateBadge,
-                { backgroundColor: report.savingsRate >= 20 ? '#4CAF50' : report.savingsRate >= 0 ? '#FF9800' : '#e94560' }
-              ]}>
-                <Text style={styles.savingsRateText}>
-                  {report.savingsRate.toFixed(0)}% saved
+        <Text style={styles.sectionHint}>Net by year</Text>
+      </View>
+
+      {yearlyReports.map((report) => (
+        <View key={report.year} style={styles.yearCard}>
+          <View style={styles.yearHeader}>
+            <Text style={styles.yearTitle}>{report.year}</Text>
+            <View style={[
+              styles.savingsRateBadge,
+              { backgroundColor: report.savingsRate >= 20 ? palette.positive : report.savingsRate >= 0 ? palette.highlight : palette.negative }
+            ]}>
+              <Text style={styles.savingsRateText}>{report.savingsRate.toFixed(0)}% saved</Text>
+            </View>
+          </View>
+          <View style={styles.yearStats}>
+            <View style={styles.yearStatRow}>
+              <View style={styles.yearStat}>
+                <Text style={styles.yearStatLabel}>Total Income</Text>
+                <Text style={styles.yearStatIncome}>{formatCompactCurrency(report.totalIncome)}</Text>
+              </View>
+              <View style={styles.yearStat}>
+                <Text style={styles.yearStatLabel}>Total Expenses</Text>
+                <Text style={styles.yearStatExpense}>{formatCompactCurrency(report.totalExpenses)}</Text>
+                {yearlyByYear.has(report.year - 1) && (
+                  <Text style={styles.yearDelta}>
+                    {(() => {
+                      const prev = yearlyByYear.get(report.year - 1);
+                      if (!prev || prev.totalExpenses <= 0) return '—';
+                      const change = ((report.totalExpenses - prev.totalExpenses) / prev.totalExpenses) * 100;
+                      const direction = change <= 0 ? '▼' : '▲';
+                      return `${direction} ${Math.abs(change).toFixed(0)}% vs ${report.year - 1}`;
+                    })()}
+                  </Text>
+                )}
+              </View>
+            </View>
+            <View style={styles.yearStatRow}>
+              <View style={styles.yearStat}>
+                <Text style={styles.yearStatLabel}>Net Savings</Text>
+                <Text style={[styles.yearStatSavings, report.savings < 0 && styles.negativeSavings]}>
+                  {formatCompactCurrency(report.savings)}
+                </Text>
+              </View>
+              <View style={styles.yearStat}>
+                <Text style={styles.yearStatLabel}>Avg Spend/mo</Text>
+                <Text style={styles.yearStatAvg}>
+                  {formatCompactCurrency(report.monthlyAvgExpense)}
                 </Text>
               </View>
             </View>
-            <View style={styles.yearStats}>
-              <View style={styles.yearStatRow}>
-                <View style={styles.yearStat}>
-                  <Text style={styles.yearStatLabel}>Total Income</Text>
-                  <Text style={styles.yearStatIncome}>{formatCurrency(report.totalIncome)}</Text>
-                </View>
-                <View style={styles.yearStat}>
-                  <Text style={styles.yearStatLabel}>Total Expenses</Text>
-                  <Text style={styles.yearStatExpense}>{formatCurrency(report.totalExpenses)}</Text>
-                </View>
-              </View>
-              <View style={styles.yearStatRow}>
-                <View style={styles.yearStat}>
-                  <Text style={styles.yearStatLabel}>Net Savings</Text>
-                  <Text style={[styles.yearStatSavings, report.savings < 0 && styles.negativeSavings]}>
-                    {formatCurrency(report.savings)}
+          </View>
+        </View>
+      ))}
+
+      {availableYears.length > 0 && (
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Year Focus</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.yearPicker}
+          >
+            {availableYears.map((year) => (
+              <TouchableOpacity
+                key={year}
+                style={[styles.yearChip, focusedYear === year && styles.yearChipActive]}
+                onPress={() => setFocusedYear(year)}
+              >
+                <Text style={[styles.yearChipText, focusedYear === year && styles.yearChipTextActive]}>
+                  {year}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      <View style={styles.card}>
+        <Text style={styles.cardSubtitle}>Top categories for {focusedYear}</Text>
+        {yearCategorySpending.length === 0 ? (
+          <Text style={styles.emptyChartText}>No expense data for this year.</Text>
+        ) : (
+          <View style={styles.pieLayout}>
+            <View style={styles.pieWrapper}>
+              <PieChart
+                data={yearPieCategories.map((cat) => ({
+                  value: cat.amount,
+                  color: cat.color,
+                }))}
+                size={200}
+                innerRadius={72}
+                selectedIndex={selectedYearCategoryIndex}
+                onSlicePress={(index) =>
+                  setSelectedYearCategoryIndex((prev) => (prev === index ? null : index))
+                }
+              />
+              <View style={styles.pieCenter}>
+                <Text style={styles.pieCenterLabel}>
+                  {activeYearCategory ? activeYearCategory.category : 'Total Spend'}
+                </Text>
+                <Text style={styles.pieCenterValue}>
+                  {formatCompactCurrency(activeYearCategory ? activeYearCategory.amount : totalYearCategorySpend)}
+                </Text>
+                {activeYearCategory && (
+                  <Text style={styles.pieCenterSub}>
+                    {activeYearCategory.percentage.toFixed(1)}% of total
                   </Text>
-                </View>
-                <View style={styles.yearStat}>
-                  <Text style={styles.yearStatLabel}>Monthly Avg</Text>
-                  <Text style={styles.yearStatAvg}>
-                    {formatCurrency(report.monthlyAvgIncome - report.monthlyAvgExpense)}
-                  </Text>
-                </View>
+                )}
               </View>
             </View>
           </View>
-        ))}
+        )}
+        {yearCategorySpending.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.legendChips}
+          >
+            {yearPieCategories.map((cat, index) => {
+              const isActive = selectedYearCategoryIndex === index;
+              return (
+                <TouchableOpacity
+                  key={cat.category}
+                  style={[styles.legendChip, isActive && styles.legendChipActive]}
+                  onPress={() => setSelectedYearCategoryIndex(isActive ? null : index)}
+                >
+                  <View style={[styles.legendDot, { backgroundColor: cat.color }]} />
+                  <Text style={styles.legendChipText} numberOfLines={1}>{cat.category}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
       </View>
-
-      {/* Year-over-Year by Month */}
-      {availableYears.length > 1 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Year-over-Year Comparison</Text>
-          <Text style={styles.sectionSubtitle}>Same month across years</Text>
-          <View style={styles.card}>
-            {yoyComparison.map((comparison, index) => (
-              <View key={index} style={styles.yoyRow}>
-                <Text style={styles.yoyMonth}>{comparison.monthName}</Text>
-                <View style={styles.yoyYears}>
-                  {comparison.years.map((yearData, yIdx) => {
-                    const prevYear = comparison.years.find(y => y.year === yearData.year - 1);
-                    const expenseChange = prevYear && prevYear.expenses > 0
-                      ? ((yearData.expenses - prevYear.expenses) / prevYear.expenses) * 100
-                      : null;
-                    return (
-                      <View key={yIdx} style={styles.yoyYearData}>
-                        <Text style={styles.yoyYearLabel}>{yearData.year}</Text>
-                        <Text style={styles.yoyExpense}>{formatCurrency(yearData.expenses)}</Text>
-                        {expenseChange !== null && (
-                          <Text style={[
-                            styles.yoyChange,
-                            { color: expenseChange <= 0 ? '#4CAF50' : '#e94560' }
-                          ]}>
-                            {expenseChange > 0 ? '+' : ''}{expenseChange.toFixed(0)}%
-                          </Text>
-                        )}
-                      </View>
-                    );
-                  })}
-                </View>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
     </>
   );
 
   const renderTrends = () => (
     <>
-      {/* Trend Indicators */}
-      {trends.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Spending Trends</Text>
-          <Text style={styles.sectionSubtitle}>Recent 3 months vs previous 3 months</Text>
-          <View style={styles.card}>
-            {trends.map((trend, index) => {
-              const icon = trend.direction === 'up' ? 'trending-up' :
-                trend.direction === 'down' ? 'trending-down' : 'remove';
-              // For expenses, "up" is bad, "down" is good
-              // For income/savings, "up" is good, "down" is bad
-              const isGood = trend.type === 'expense'
-                ? trend.direction === 'down'
-                : trend.direction === 'up';
-              const color = trend.direction === 'stable' ? '#8892b0' : isGood ? '#4CAF50' : '#e94560';
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Momentum</Text>
+        <Text style={styles.sectionHint}>Recent vs previous 3 months</Text>
+      </View>
 
-              return (
-                <View key={index} style={styles.trendRow}>
-                  <View style={styles.trendLeft}>
-                    <Ionicons name={icon as any} size={24} color={color} />
-                    <View style={styles.trendInfo}>
-                      <Text style={styles.trendLabel}>
-                        {trend.type.charAt(0).toUpperCase() + trend.type.slice(1)}
-                      </Text>
-                      <Text style={styles.trendAvg}>
-                        Avg: {formatCurrency(trend.recentAvg)}/mo
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.trendRight}>
-                    <Text style={[styles.trendChange, { color }]}>
-                      {trend.percentChange > 0 ? '+' : ''}{trend.percentChange.toFixed(1)}%
+      {trends.length > 0 && (
+        <View style={styles.card}>
+          {trends.map((trend) => {
+            const icon = trend.direction === 'up' ? 'trending-up' :
+              trend.direction === 'down' ? 'trending-down' : 'remove';
+            const isGood = trend.type === 'expense'
+              ? trend.direction === 'down'
+              : trend.direction === 'up';
+            const color = trend.direction === 'stable' ? palette.muted : isGood ? palette.positive : palette.negative;
+            const series = trend.type === 'income'
+              ? trendSeries.income
+              : trend.type === 'expense'
+              ? trendSeries.expenses
+              : trendSeries.savings;
+
+            return (
+              <View key={trend.type} style={styles.trendRow}>
+                <View style={styles.trendLeft}>
+                  <Ionicons name={icon as any} size={22} color={color} />
+                  <View style={styles.trendInfo}>
+                    <Text style={styles.trendLabel}>
+                      {trend.type.charAt(0).toUpperCase() + trend.type.slice(1)}
                     </Text>
-                    <Text style={styles.trendDirection}>
-                      {trend.direction === 'stable' ? 'Stable' :
-                       trend.direction === 'up' ? 'Increasing' : 'Decreasing'}
-                    </Text>
+                    <Text style={styles.trendAvg}>Avg: {formatCurrency(trend.recentAvg)}/mo</Text>
                   </View>
                 </View>
-              );
-            })}
-          </View>
+                <View style={styles.trendRight}>
+                  <Sparkline data={series} color={color} width={72} height={24} />
+                  <Text style={[styles.trendChange, { color }]}>
+                    {trend.percentChange > 0 ? '+' : ''}{trend.percentChange.toFixed(1)}%
+                  </Text>
+                  <Text style={styles.trendDirection}>
+                    {trend.direction === 'stable' ? 'Stable' : trend.direction === 'up' ? 'Rising' : 'Falling'}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
         </View>
       )}
 
-      {/* Monthly Trend Chart (Simple Bar) */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Monthly Expenses</Text>
-        <View style={styles.card}>
-          {monthlyReports.slice(0, 12).reverse().map((report, index) => {
-            const maxExpense = Math.max(...monthlyReports.map(r => r.expenses));
-            const width = maxExpense > 0 ? (report.expenses / maxExpense) * 100 : 0;
-            return (
-              <View key={index} style={styles.chartRow}>
-                <Text style={styles.chartLabel}>{formatMonth(report.month).slice(0, 3)}</Text>
-                <View style={styles.chartBarContainer}>
-                  <View style={[styles.chartBar, { width: `${width}%` }]} />
-                </View>
-                <Text style={styles.chartValue}>{formatCurrency(report.expenses)}</Text>
-              </View>
-            );
-          })}
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Expense Timeline</Text>
+        <View style={styles.segmentedControl}>
+          {(['month', 'year'] as Scope[]).map((scope) => (
+            <TouchableOpacity
+              key={scope}
+              style={[
+                styles.segmentedButton,
+                timelineScope === scope && styles.segmentedButtonActive,
+              ]}
+              onPress={() => setTimelineScope(scope)}
+            >
+              <Text
+                style={[
+                  styles.segmentedText,
+                  timelineScope === scope && styles.segmentedTextActive,
+                ]}
+              >
+                {scope === 'month' ? 'Monthly' : 'Yearly'}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
       </View>
 
-      {/* Income vs Expense Over Time */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Income vs Expenses</Text>
-        <View style={styles.card}>
-          {monthlyReports.slice(0, 6).map((report, index) => {
-            const maxVal = Math.max(report.income, report.expenses);
-            const incomeWidth = maxVal > 0 ? (report.income / maxVal) * 100 : 0;
-            const expenseWidth = maxVal > 0 ? (report.expenses / maxVal) * 100 : 0;
-            return (
-              <View key={index} style={styles.compareRow}>
-                <Text style={styles.compareMonth}>{formatMonth(report.month)}</Text>
-                <View style={styles.compareBars}>
-                  <View style={styles.compareBarRow}>
-                    <View style={[styles.compareBarIncome, { width: `${incomeWidth}%` }]} />
-                    <Text style={styles.compareValue}>{formatCurrency(report.income)}</Text>
-                  </View>
-                  <View style={styles.compareBarRow}>
-                    <View style={[styles.compareBarExpense, { width: `${expenseWidth}%` }]} />
-                    <Text style={styles.compareValue}>{formatCurrency(report.expenses)}</Text>
-                  </View>
-                </View>
-              </View>
-            );
-          })}
-          <View style={styles.legendRow}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#4CAF50' }]} />
-              <Text style={styles.legendText}>Income</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#e94560' }]} />
-              <Text style={styles.legendText}>Expenses</Text>
+      <View style={styles.card}>
+        {timelineData.length === 0 ? (
+          <Text style={styles.emptyChartText}>No expense data yet.</Text>
+        ) : (
+          <View>
+            <Text style={styles.timelineHint}>
+              {selectedTimelineIndex === null
+                ? `Average: ${formatCompactCurrency(averageTimelineValue)}`
+                : `${timelineData[selectedTimelineIndex]?.label}: ${formatCompactCurrency(timelineData[selectedTimelineIndex]?.value || 0)}`}
+            </Text>
+            <View style={styles.timelineChart}>
+              <View style={[styles.referenceLine, { top: timelineLineOffset }]} />
+              {timelineData.map((item, index) => {
+                const height = maxTimelineValue > 0 ? (item.value / maxTimelineValue) * timelineHeight : 0;
+                const isActive = selectedTimelineIndex === index;
+                return (
+                  <TouchableOpacity
+                    key={item.label}
+                    style={styles.timelineItem}
+                    onPress={() =>
+                      setSelectedTimelineIndex((prev) => (prev === index ? null : index))
+                    }
+                  >
+                    <View style={styles.timelineTrack}>
+                      <View style={[styles.timelineFill, isActive && styles.timelineFillActive, { height }]} />
+                    </View>
+                    <Text style={styles.timelineLabel}>{item.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
-        </View>
+        )}
       </View>
     </>
   );
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.backgroundOrb} />
+      <View style={styles.backgroundOrbAlt} />
       {renderTabs()}
       {activeTab === 'overview' && renderOverview()}
       {activeTab === 'yearly' && renderYearly()}
@@ -339,8 +646,30 @@ export default function Reports() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
-    padding: 16,
+    backgroundColor: palette.background,
+  },
+  content: {
+    padding: 20,
+  },
+  backgroundOrb: {
+    position: 'absolute',
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: palette.accentSoft,
+    opacity: 0.6,
+    top: -80,
+    right: -60,
+  },
+  backgroundOrbAlt: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: '#FDE7D3',
+    opacity: 0.7,
+    bottom: 140,
+    left: -80,
   },
   empty: {
     flex: 1,
@@ -349,129 +678,170 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   title: {
-    color: '#fff',
+    color: palette.ink,
     fontSize: 20,
     marginTop: 16,
+    fontWeight: '600',
   },
   subtitle: {
-    color: '#8892b0',
+    color: palette.muted,
     fontSize: 14,
     marginTop: 8,
   },
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: '#16213e',
-    borderRadius: 8,
+    backgroundColor: palette.wash,
+    borderRadius: 20,
     padding: 4,
-    marginBottom: 16,
+    marginBottom: 18,
   },
   tab: {
     flex: 1,
     paddingVertical: 10,
     alignItems: 'center',
-    borderRadius: 6,
+    borderRadius: 16,
   },
   activeTab: {
-    backgroundColor: '#e94560',
+    backgroundColor: palette.card,
+    borderWidth: 1,
+    borderColor: palette.border,
   },
   tabText: {
-    color: '#8892b0',
-    fontSize: 14,
-    fontWeight: '500',
+    color: palette.muted,
+    fontSize: 13,
+    fontWeight: '600',
   },
   activeTabText: {
-    color: '#fff',
+    color: palette.ink,
   },
-  section: {
-    marginBottom: 24,
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   sectionTitle: {
-    color: '#fff',
+    color: palette.ink,
     fontSize: 18,
     fontWeight: '600',
-    marginBottom: 4,
   },
-  sectionSubtitle: {
-    color: '#8892b0',
+  sectionHint: {
+    color: palette.muted,
     fontSize: 12,
-    marginBottom: 12,
+  },
+  segmentedControl: {
+    flexDirection: 'row',
+    backgroundColor: '#EFE8DD',
+    borderRadius: 20,
+    padding: 4,
+  },
+  segmentedButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  segmentedButtonActive: {
+    backgroundColor: palette.card,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  segmentedText: {
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  segmentedTextActive: {
+    color: palette.ink,
   },
   card: {
-    backgroundColor: '#16213e',
-    borderRadius: 12,
+    backgroundColor: palette.card,
+    borderRadius: 18,
     padding: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    marginBottom: 18,
   },
-  categoryItem: {
-    marginBottom: 16,
-  },
-  categoryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  categoryLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  colorDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 10,
-  },
-  categoryName: {
-    color: '#fff',
-    fontSize: 14,
-  },
-  categoryAmount: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  barContainer: {
-    height: 8,
-    backgroundColor: '#0f3460',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: '100%',
-    borderRadius: 4,
-  },
-  percentage: {
-    color: '#8892b0',
+  cardSubtitle: {
+    color: palette.muted,
     fontSize: 12,
+    marginBottom: 12,
+  },
+  emptyChartText: {
+    color: palette.muted,
+    fontSize: 13,
+  },
+  pieLayout: {
+    alignItems: 'center',
+  },
+  pieWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pieCenter: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 120,
+  },
+  pieCenterLabel: {
+    color: palette.muted,
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  pieCenterValue: {
+    color: palette.ink,
+    fontSize: 18,
+    fontWeight: '700',
     marginTop: 4,
   },
-  totalRow: {
+  pieCenterSub: {
+    color: palette.muted,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  legendChips: {
+    marginTop: 12,
+    paddingBottom: 4,
+    gap: 10,
+  },
+  legendChip: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#0f3460',
-    marginTop: 8,
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#EFE8DD',
+    borderWidth: 1,
+    borderColor: palette.border,
   },
-  totalLabel: {
-    color: '#8892b0',
-    fontSize: 14,
+  legendChipActive: {
+    backgroundColor: palette.card,
   },
-  totalAmount: {
-    color: '#e94560',
-    fontSize: 16,
-    fontWeight: 'bold',
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 8,
+  },
+  legendChipText: {
+    color: palette.ink,
+    fontSize: 12,
+    fontWeight: '600',
   },
   monthCard: {
-    backgroundColor: '#16213e',
-    borderRadius: 12,
+    backgroundColor: palette.card,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
   },
   monthTitle: {
-    color: '#fff',
+    color: palette.ink,
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   monthStats: {
     flexDirection: 'row',
@@ -482,48 +852,48 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   monthStatLabel: {
-    color: '#8892b0',
+    color: palette.muted,
     fontSize: 11,
-    marginTop: 4,
   },
   monthStatIncome: {
-    color: '#4CAF50',
+    color: palette.positive,
     fontSize: 14,
     fontWeight: '600',
-    marginTop: 2,
+    marginTop: 4,
   },
   monthStatExpense: {
-    color: '#e94560',
+    color: palette.negative,
     fontSize: 14,
     fontWeight: '600',
-    marginTop: 2,
+    marginTop: 4,
   },
   monthStatSavings: {
-    color: '#4CAF50',
+    color: palette.positive,
     fontSize: 14,
     fontWeight: '600',
-    marginTop: 2,
+    marginTop: 4,
   },
   negativeSavings: {
-    color: '#e94560',
+    color: palette.negative,
   },
-  // Yearly styles
   yearCard: {
-    backgroundColor: '#16213e',
-    borderRadius: 12,
+    backgroundColor: palette.card,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
   },
   yearHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   yearTitle: {
-    color: '#fff',
+    color: palette.ink,
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   savingsRateBadge: {
     paddingHorizontal: 12,
@@ -536,7 +906,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   yearStats: {
-    gap: 12,
+    gap: 10,
   },
   yearStatRow: {
     flexDirection: 'row',
@@ -546,76 +916,63 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   yearStatLabel: {
-    color: '#8892b0',
+    color: palette.muted,
     fontSize: 12,
     marginBottom: 4,
   },
   yearStatIncome: {
-    color: '#4CAF50',
+    color: palette.positive,
     fontSize: 18,
     fontWeight: '600',
   },
   yearStatExpense: {
-    color: '#e94560',
+    color: palette.negative,
     fontSize: 18,
     fontWeight: '600',
   },
   yearStatSavings: {
-    color: '#4CAF50',
+    color: palette.positive,
     fontSize: 18,
     fontWeight: '600',
   },
   yearStatAvg: {
-    color: '#64B5F6',
+    color: palette.accent,
     fontSize: 18,
     fontWeight: '600',
   },
-  // YoY styles
-  yoyRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#0f3460',
-  },
-  yoyMonth: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
-    width: 40,
-  },
-  yoyYears: {
-    flexDirection: 'row',
-    flex: 1,
-    justifyContent: 'flex-end',
-    gap: 16,
-  },
-  yoyYearData: {
-    alignItems: 'flex-end',
-    minWidth: 70,
-  },
-  yoyYearLabel: {
-    color: '#8892b0',
+  yearDelta: {
+    color: palette.muted,
     fontSize: 11,
+    marginTop: 4,
   },
-  yoyExpense: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '500',
+  yearPicker: {
+    flexDirection: 'row',
+    gap: 6,
   },
-  yoyChange: {
-    fontSize: 11,
-    fontWeight: '500',
+  yearChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: palette.wash,
   },
-  // Trend styles
+  yearChipActive: {
+    backgroundColor: palette.accentSoft,
+  },
+  yearChipText: {
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  yearChipTextActive: {
+    color: palette.accent,
+  },
   trendRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#0f3460',
+    borderBottomColor: palette.border,
   },
   trendLeft: {
     flexDirection: 'row',
@@ -625,112 +982,74 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   trendLabel: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
+    color: palette.ink,
+    fontSize: 15,
+    fontWeight: '600',
   },
   trendAvg: {
-    color: '#8892b0',
-    fontSize: 12,
+    color: palette.muted,
+    fontSize: 11,
     marginTop: 2,
   },
   trendRight: {
     alignItems: 'flex-end',
   },
   trendChange: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '700',
   },
   trendDirection: {
-    color: '#8892b0',
+    color: palette.muted,
     fontSize: 11,
   },
-  // Chart styles
-  chartRow: {
+  timelineChart: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 10,
+    position: 'relative',
+    height: 160,
   },
-  chartLabel: {
-    color: '#8892b0',
-    fontSize: 11,
-    width: 30,
-  },
-  chartBarContainer: {
+  timelineItem: {
     flex: 1,
-    height: 16,
-    backgroundColor: '#0f3460',
-    borderRadius: 4,
-    marginHorizontal: 8,
+    alignItems: 'center',
+  },
+  timelineTrack: {
+    height: 140,
+    width: '100%',
+    backgroundColor: palette.wash,
+    borderRadius: 12,
+    justifyContent: 'flex-end',
     overflow: 'hidden',
   },
-  chartBar: {
-    height: '100%',
-    backgroundColor: '#e94560',
-    borderRadius: 4,
+  timelineFill: {
+    width: '100%',
+    backgroundColor: palette.accent,
+    borderRadius: 12,
   },
-  chartValue: {
-    color: '#fff',
+  timelineFillActive: {
+    backgroundColor: palette.highlight,
+  },
+  timelineLabel: {
+    color: palette.muted,
     fontSize: 11,
-    width: 70,
-    textAlign: 'right',
+    marginTop: 6,
   },
-  // Compare styles
-  compareRow: {
-    marginBottom: 16,
-  },
-  compareMonth: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 8,
-  },
-  compareBars: {
-    gap: 4,
-  },
-  compareBarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  compareBarIncome: {
-    height: 12,
-    backgroundColor: '#4CAF50',
-    borderRadius: 4,
-  },
-  compareBarExpense: {
-    height: 12,
-    backgroundColor: '#e94560',
-    borderRadius: 4,
-  },
-  compareValue: {
-    color: '#8892b0',
-    fontSize: 11,
-    marginLeft: 8,
-  },
-  legendRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 24,
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#0f3460',
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  legendDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 6,
-  },
-  legendText: {
-    color: '#8892b0',
+  timelineHint: {
+    color: palette.muted,
     fontSize: 12,
+    marginBottom: 10,
+  },
+  referenceLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    borderTopWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: palette.highlight,
   },
   bottomPadding: {
-    height: 40,
+    height: 30,
   },
 });

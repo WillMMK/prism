@@ -18,17 +18,27 @@ function isAggregateColumn(header: string): boolean {
 function detectSheetTypeFromName(sheetName: string): 'expense' | 'income' | null {
   const lower = sheetName.toLowerCase().trim();
 
+  const hasExpense = lower.includes('expense') ||
+    lower.includes('spending') ||
+    lower.includes('cost') ||
+    lower.includes('payment');
+
+  const hasIncome = lower.includes('income') ||
+    lower.includes('earning') ||
+    lower.includes('revenue') ||
+    lower.includes('salary');
+
+  if (hasExpense && hasIncome) {
+    return null;
+  }
+
   // Check for expense sheet names
-  if (lower === 'expense' || lower === 'expenses' ||
-      lower.includes('expense') || lower.includes('spending') ||
-      lower.includes('cost') || lower.includes('payment')) {
+  if (lower === 'expense' || lower === 'expenses' || hasExpense) {
     return 'expense';
   }
 
   // Check for income sheet names
-  if (lower === 'income' || lower === 'incomes' ||
-      lower.includes('income') || lower.includes('earning') ||
-      lower.includes('revenue') || lower.includes('salary')) {
+  if (lower === 'income' || lower === 'incomes' || hasIncome) {
     return 'income';
   }
 
@@ -470,6 +480,11 @@ describe('Sheet Type Detection from Name', () => {
       expect(detectSheetTypeFromName('revenue')).toBe('income');
       expect(detectSheetTypeFromName('salary')).toBe('income');
       expect(detectSheetTypeFromName('Salary History')).toBe('income');
+    });
+
+    test('should return null when name includes both income and expense keywords', () => {
+      expect(detectSheetTypeFromName('Income and Expense 2025')).toBe(null);
+      expect(detectSheetTypeFromName('expense income summary')).toBe(null);
     });
 
     test('should return null for neutral sheet names', () => {

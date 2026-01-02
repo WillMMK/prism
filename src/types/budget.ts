@@ -4,6 +4,7 @@ export interface Transaction {
   description: string;
   category: string;
   amount: number;
+  signedAmount?: number;
   type: 'income' | 'expense';
 }
 

@@ -51,6 +51,30 @@ const defaultCategories: Category[] = [
   { id: '8', name: 'Other', color: '#607D8B', icon: 'ellipsis-horizontal' },
 ];
 
+const getSignedAmount = (transaction: Transaction): number => {
+  if (typeof transaction.signedAmount === 'number') {
+    return transaction.signedAmount;
+  }
+  return transaction.type === 'income' ? transaction.amount : -transaction.amount;
+};
+
+const getNetExpenseTotal = (transactions: Transaction[]): number => {
+  let outflow = 0;
+  let rebates = 0;
+
+  transactions.forEach((transaction) => {
+    if (transaction.type !== 'expense') return;
+    const signed = getSignedAmount(transaction);
+    if (signed < 0) {
+      outflow += Math.abs(signed);
+    } else {
+      rebates += signed;
+    }
+  });
+
+  return Math.max(0, outflow - rebates);
+};
+
 export const useBudgetStore = create<BudgetState>()(
   persist(
     (set, get) => ({
@@ -105,10 +129,8 @@ export const useBudgetStore = create<BudgetState>()(
         const { transactions } = get();
         const totalIncome = transactions
           .filter((t) => t.type === 'income')
-          .reduce((sum, t) => sum + t.amount, 0);
-        const totalExpenses = transactions
-          .filter((t) => t.type === 'expense')
-          .reduce((sum, t) => sum + t.amount, 0);
+          .reduce((sum, t) => sum + Math.max(0, getSignedAmount(t)), 0);
+        const totalExpenses = getNetExpenseTotal(transactions);
         const balance = totalIncome - totalExpenses;
         const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpenses) / totalIncome) * 100 : 0;
 
@@ -118,16 +140,17 @@ export const useBudgetStore = create<BudgetState>()(
       getCategorySpending: () => {
         const { transactions, categories } = get();
         const expenses = transactions.filter((t) => t.type === 'expense');
-        const totalExpenses = expenses.reduce((sum, t) => sum + t.amount, 0);
+        const totalExpenses = getNetExpenseTotal(expenses);
 
         const categoryTotals = new Map<string, number>();
         expenses.forEach((t) => {
           const current = categoryTotals.get(t.category) || 0;
-          categoryTotals.set(t.category, current + t.amount);
+          categoryTotals.set(t.category, current + getSignedAmount(t));
         });
 
         return Array.from(categoryTotals.entries())
-          .map(([category, amount]) => {
+          .map(([category, signedTotal]) => {
+            const amount = Math.max(0, -signedTotal);
             const cat = categories.find((c) => c.name === category);
             return {
               category,
@@ -141,28 +164,36 @@ export const useBudgetStore = create<BudgetState>()(
 
       getMonthlyReports: (months = 6) => {
         const { transactions } = get();
-        const reports = new Map<string, { income: number; expenses: number }>();
+        const reports = new Map<string, { income: number; outflow: number; rebates: number }>();
 
         transactions.forEach((t) => {
           const date = new Date(t.date);
           const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
-          const current = reports.get(monthKey) || { income: 0, expenses: 0 };
+          const current = reports.get(monthKey) || { income: 0, outflow: 0, rebates: 0 };
           if (t.type === 'income') {
-            current.income += t.amount;
+            current.income += Math.max(0, getSignedAmount(t));
           } else {
-            current.expenses += t.amount;
+            const signed = getSignedAmount(t);
+            if (signed < 0) {
+              current.outflow += Math.abs(signed);
+            } else {
+              current.rebates += signed;
+            }
           }
           reports.set(monthKey, current);
         });
 
         return Array.from(reports.entries())
-          .map(([month, data]) => ({
-            month,
-            income: data.income,
-            expenses: data.expenses,
-            savings: data.income - data.expenses,
-          }))
+          .map(([month, data]) => {
+            const expenses = Math.max(0, data.outflow - data.rebates);
+            return {
+              month,
+              income: data.income,
+              expenses,
+              savings: data.income - expenses,
+            };
+          })
           .sort((a, b) => b.month.localeCompare(a.month))
           .slice(0, months);
       },
@@ -186,7 +217,7 @@ export const useBudgetStore = create<BudgetState>()(
 
       getYearlyReports: () => {
         const { transactions } = get();
-        const yearlyData = new Map<number, { income: number; expenses: number; months: Set<number> }>();
+        const yearlyData = new Map<number, { income: number; outflow: number; rebates: number; months: Set<number> }>();
 
         transactions.forEach((t) => {
           const date = new Date(t.date);
@@ -194,12 +225,17 @@ export const useBudgetStore = create<BudgetState>()(
           const month = date.getMonth();
           if (isNaN(year)) return;
 
-          const current = yearlyData.get(year) || { income: 0, expenses: 0, months: new Set<number>() };
+          const current = yearlyData.get(year) || { income: 0, outflow: 0, rebates: 0, months: new Set<number>() };
           current.months.add(month);
           if (t.type === 'income') {
-            current.income += t.amount;
+            current.income += Math.max(0, getSignedAmount(t));
           } else {
-            current.expenses += t.amount;
+            const signed = getSignedAmount(t);
+            if (signed < 0) {
+              current.outflow += Math.abs(signed);
+            } else {
+              current.rebates += signed;
+            }
           }
           yearlyData.set(year, current);
         });
@@ -207,15 +243,16 @@ export const useBudgetStore = create<BudgetState>()(
         return Array.from(yearlyData.entries())
           .map(([year, data]) => {
             const monthCount = data.months.size || 1;
-            const savings = data.income - data.expenses;
+            const totalExpenses = Math.max(0, data.outflow - data.rebates);
+            const savings = data.income - totalExpenses;
             return {
               year,
               totalIncome: data.income,
-              totalExpenses: data.expenses,
+              totalExpenses,
               savings,
               savingsRate: data.income > 0 ? (savings / data.income) * 100 : 0,
               monthlyAvgIncome: data.income / monthCount,
-              monthlyAvgExpense: data.expenses / monthCount,
+              monthlyAvgExpense: totalExpenses / monthCount,
             };
           })
           .sort((a, b) => b.year - a.year);
@@ -226,7 +263,7 @@ export const useBudgetStore = create<BudgetState>()(
         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
         // Group by month and year
-        const monthYearData = new Map<string, { income: number; expenses: number }>();
+        const monthYearData = new Map<string, { income: number; outflow: number; rebates: number }>();
         const allYears = new Set<number>();
 
         transactions.forEach((t) => {
@@ -237,11 +274,16 @@ export const useBudgetStore = create<BudgetState>()(
 
           allYears.add(year);
           const key = `${month}-${year}`;
-          const current = monthYearData.get(key) || { income: 0, expenses: 0 };
+          const current = monthYearData.get(key) || { income: 0, outflow: 0, rebates: 0 };
           if (t.type === 'income') {
-            current.income += t.amount;
+            current.income += Math.max(0, getSignedAmount(t));
           } else {
-            current.expenses += t.amount;
+            const signed = getSignedAmount(t);
+            if (signed < 0) {
+              current.outflow += Math.abs(signed);
+            } else {
+              current.rebates += signed;
+            }
           }
           monthYearData.set(key, current);
         });
@@ -253,12 +295,13 @@ export const useBudgetStore = create<BudgetState>()(
         for (let month = 1; month <= 12; month++) {
           const yearsData = yearsArray.map((year) => {
             const key = `${month}-${year}`;
-            const data = monthYearData.get(key) || { income: 0, expenses: 0 };
+            const data = monthYearData.get(key) || { income: 0, outflow: 0, rebates: 0 };
+            const expenses = Math.max(0, data.outflow - data.rebates);
             return {
               year,
               income: data.income,
-              expenses: data.expenses,
-              savings: data.income - data.expenses,
+              expenses,
+              savings: data.income - expenses,
             };
           }).filter((d) => d.income > 0 || d.expenses > 0);
 
@@ -279,15 +322,20 @@ export const useBudgetStore = create<BudgetState>()(
         const trends: TrendData[] = [];
 
         // Get monthly totals sorted by date
-        const monthlyTotals = new Map<string, { income: number; expenses: number }>();
+        const monthlyTotals = new Map<string, { income: number; outflow: number; rebates: number }>();
         transactions.forEach((t) => {
           const date = new Date(t.date);
           const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-          const current = monthlyTotals.get(monthKey) || { income: 0, expenses: 0 };
+          const current = monthlyTotals.get(monthKey) || { income: 0, outflow: 0, rebates: 0 };
           if (t.type === 'income') {
-            current.income += t.amount;
+            current.income += Math.max(0, getSignedAmount(t));
           } else {
-            current.expenses += t.amount;
+            const signed = getSignedAmount(t);
+            if (signed < 0) {
+              current.outflow += Math.abs(signed);
+            } else {
+              current.rebates += signed;
+            }
           }
           monthlyTotals.set(monthKey, current);
         });
@@ -304,7 +352,11 @@ export const useBudgetStore = create<BudgetState>()(
         if (previousMonths.length === 0) return trends;
 
         const calcAvg = (months: typeof sortedMonths, type: 'income' | 'expenses') =>
-          months.reduce((sum, [, data]) => sum + data[type], 0) / months.length;
+          months.reduce((sum, [, data]) => {
+            if (type === 'income') return sum + data.income;
+            const expenses = Math.max(0, data.outflow - data.rebates);
+            return sum + expenses;
+          }, 0) / months.length;
 
         // Income trend
         const recentIncome = calcAvg(recentMonths, 'income');
