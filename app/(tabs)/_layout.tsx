@@ -1,7 +1,27 @@
+import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { AppState } from 'react-native';
+import { flushPendingTransactions } from '../../src/services/transactionSync';
 
 export default function TabsLayout() {
+  React.useEffect(() => {
+    const tryFlush = () => {
+      void flushPendingTransactions();
+    };
+
+    tryFlush();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        tryFlush();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
   return (
     <Tabs
       screenOptions={{

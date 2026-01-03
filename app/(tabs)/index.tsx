@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useBudgetStore } from '../../src/store/budgetStore';
 import { Transaction, CategorySpending, BudgetSummary } from '../../src/types/budget';
 import { PieChart } from '../../src/components/PieChart';
@@ -179,6 +180,7 @@ const ensureDistinctColors = (items: CategorySpending[]) =>
   }));
 
 export default function Dashboard() {
+  const router = useRouter();
   const { transactions, categories, getRecentTransactions, getAvailableYears, demoConfig } = useBudgetStore();
   const [categoryScope, setCategoryScope] = useState<Scope>('month');
   const [balanceScope, setBalanceScope] = useState<BalanceScope>('year');
@@ -231,28 +233,34 @@ export default function Dashboard() {
 
   if (transactions.length === 0) {
     return (
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <View style={styles.backgroundOrb} />
-        <View style={styles.backgroundOrbAlt} />
-        <View style={styles.emptyCard}>
-          <Ionicons name="wallet-outline" size={48} color={palette.accent} />
-          <Text style={styles.emptyTitle}>Budget Tracker</Text>
-          <Text style={styles.emptySubtitle}>Connect your Google Sheet to get started.</Text>
-        </View>
-        <View style={styles.emptySteps}>
-          <Text style={styles.stepTitle}>Quick start</Text>
-          <Text style={styles.stepText}>1. Open Settings</Text>
-          <Text style={styles.stepText}>2. Upload your sheet</Text>
-          <Text style={styles.stepText}>3. Tap Analyze, then Import</Text>
-        </View>
-      </ScrollView>
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={styles.content}>
+          <View style={styles.backgroundOrb} />
+          <View style={styles.backgroundOrbAlt} />
+          <View style={styles.emptyCard}>
+            <Ionicons name="wallet-outline" size={48} color={palette.accent} />
+            <Text style={styles.emptyTitle}>Budget Tracker</Text>
+            <Text style={styles.emptySubtitle}>Connect your Google Sheet to get started.</Text>
+          </View>
+          <View style={styles.emptySteps}>
+            <Text style={styles.stepTitle}>Quick start</Text>
+            <Text style={styles.stepText}>1. Open Settings</Text>
+            <Text style={styles.stepText}>2. Upload your sheet</Text>
+            <Text style={styles.stepText}>3. Tap Analyze, then Import</Text>
+          </View>
+        </ScrollView>
+        <TouchableOpacity style={styles.fab} onPress={() => router.push('/add-transaction')}>
+          <Ionicons name="add" size={24} color="#fff" />
+        </TouchableOpacity>
+      </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.backgroundOrb} />
-      <View style={styles.backgroundOrbAlt} />
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.backgroundOrb} />
+        <View style={styles.backgroundOrbAlt} />
 
       <View style={styles.heroCard}>
         <View style={styles.heroHeader}>
@@ -452,8 +460,12 @@ export default function Dashboard() {
         </View>
       )}
 
-      <View style={styles.bottomPadding} />
-    </ScrollView>
+        <View style={styles.bottomPadding} />
+      </ScrollView>
+      <TouchableOpacity style={styles.fab} onPress={() => router.push('/add-transaction')}>
+        <Ionicons name="add" size={24} color="#fff" />
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -464,6 +476,22 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 28,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: palette.highlight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 6,
   },
   backgroundOrb: {
     position: 'absolute',

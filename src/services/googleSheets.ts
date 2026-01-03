@@ -12,6 +12,7 @@ const GOOGLE_IOS_CLIENT_ID = '907648461438-lttve08jch0tc7639k16hill7smkbqur.apps
 const GOOGLE_ANDROID_CLIENT_ID = '';
 const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets.readonly',
+  'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive.readonly',
 ];
 
@@ -211,10 +212,19 @@ export class GoogleSheetsService {
   }
 
   // Fetch data from a specific sheet
-  async fetchSheetData(spreadsheetId: string, sheetName: string, range?: string): Promise<string[][]> {
+  async fetchSheetData(
+    spreadsheetId: string,
+    sheetName: string,
+    range?: string,
+    options?: { valueRenderOption?: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE' | 'FORMULA' }
+  ): Promise<string[][]> {
     const token = await this.getToken();
     const fullRange = range ? `'${sheetName}'!${range}` : `'${sheetName}'`;
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(fullRange)}`;
+    const query = new URLSearchParams();
+    if (options?.valueRenderOption) {
+      query.set('valueRenderOption', options.valueRenderOption);
+    }
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(fullRange)}${query.toString() ? `?${query.toString()}` : ''}`;
 
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
@@ -230,6 +240,112 @@ export class GoogleSheetsService {
 
     const data = await response.json();
     return data.values || [];
+  }
+
+  private buildAppendRow(
+    mapping: ColumnMapping,
+    transaction: Transaction,
+    columnCount: number,
+    formulaColumns: Set<number>
+  ): (string | number)[] {
+    const row = Array.from({ length: columnCount }, () => '');
+    const signedAmount =
+      typeof transaction.signedAmount === 'number'
+        ? transaction.signedAmount
+        : transaction.type === 'income'
+        ? transaction.amount
+        : -transaction.amount;
+
+    const safeSet = (index: number | null, value: string | number) => {
+      if (index === null || index < 0) return;
+      if (formulaColumns.has(index)) return;
+      if (index >= row.length) return;
+      row[index] = value;
+    };
+
+    safeSet(mapping.dateColumn, transaction.date || new Date().toISOString().split('T')[0]);
+    safeSet(mapping.descriptionColumn, transaction.description || '');
+    safeSet(mapping.amountColumn, signedAmount);
+    safeSet(mapping.categoryColumn, transaction.category || '');
+
+    return row;
+  }
+
+  private async getWriteSchema(spreadsheetId: string, sheetName: string): Promise<{
+    mapping: ColumnMapping;
+    columnCount: number;
+    formulaColumns: Set<number>;
+  }> {
+    const sampleData = await this.fetchSheetData(spreadsheetId, sheetName, 'A1:Z20', {
+      valueRenderOption: 'FORMULA',
+    });
+    const headerRow = sampleData[0] || [];
+    const hasHeader = this.isLikelyHeaderRow(headerRow, sampleData.slice(1));
+    const maxColumns = Math.max(
+      headerRow.length,
+      0,
+      ...sampleData.map(row => row.length)
+    );
+
+    const headers = hasHeader
+      ? headerRow
+      : Array.from({ length: maxColumns }, () => '');
+    const dataRows = hasHeader ? sampleData.slice(1) : sampleData;
+    const mapping = this.inferSchema(headers, dataRows);
+    const formulaColumns = new Set<number>();
+    const sampleRow = dataRows.find(row => row.some(cell => String(cell ?? '').trim().length > 0)) || [];
+
+    sampleRow.forEach((cell, index) => {
+      const value = String(cell ?? '').trim();
+      if (value.startsWith('=')) {
+        formulaColumns.add(index);
+      }
+    });
+
+    return {
+      mapping,
+      columnCount: Math.max(1, maxColumns),
+      formulaColumns,
+    };
+  }
+
+  async appendTransaction(
+    spreadsheetId: string,
+    sheetName: string,
+    transaction: Transaction
+  ): Promise<void> {
+    const token = await this.getToken();
+    const { mapping, columnCount, formulaColumns } = await this.getWriteSchema(spreadsheetId, sheetName);
+
+    if (mapping.amountColumn === null && mapping.dateColumn === null && mapping.descriptionColumn === null) {
+      throw new Error('Could not detect a column mapping for this sheet.');
+    }
+
+    const row = this.buildAppendRow(mapping, transaction, columnCount, formulaColumns);
+    const range = `'${sheetName}'!A1`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}:append?` +
+      new URLSearchParams({
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+      }).toString();
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ values: [row] }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        await this.clearToken();
+        throw new Error('Authentication expired. Please sign in again.');
+      }
+      const text = await response.text();
+      throw new Error(`Failed to append row: ${text || response.statusText}`);
+    }
   }
 
   // Infer schema from sheet data

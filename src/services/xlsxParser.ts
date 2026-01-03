@@ -372,10 +372,12 @@ class XLSXParserService {
     ).length;
     const hasDateColumn = this.hasDateLikeColumn(sheet.rows, headers.length);
 
-    // Mixed format: has both monthly summaries (YYYY/M) and daily details.
+    // Mixed format: has both monthly summaries and daily details.
     if (
-      dateFormats.hasYearFirstDates &&
-      (dateFormats.hasDayFirstDates || dateFormats.hasSerialDates)
+      (dateFormats.hasYearFirstDates &&
+        (dateFormats.hasDayFirstDates || dateFormats.hasSerialDates)) ||
+      (dateFormats.hasMonthNameDates &&
+        (dateFormats.hasDayFirstDates || dateFormats.hasSerialDates))
     ) {
       return 'mixed';
     }
@@ -760,7 +762,6 @@ class XLSXParserService {
 
     // Detect sum columns by analyzing data patterns
     const sumColumns = this.detectSumColumns(headers, rows, numericColumns);
-    const categoryColumns = numericColumns.filter(idx => !sumColumns.has(idx));
 
     // Also mark aggregate columns as sum columns even if not detected
     headers.forEach((header, index) => {
@@ -770,6 +771,16 @@ class XLSXParserService {
         !sumColumns.has(index)
       ) {
         sumColumns.set(index, []);  // Mark as sum column with empty components
+      }
+    });
+
+    const categoryColumns = numericColumns.filter(idx => !sumColumns.has(idx));
+    const categoryTotals = new Map<number, number>();
+
+    categoryColumns.forEach((index) => {
+      const total = rows.reduce((sum, row) => sum + this.parseAmount(row[index]), 0);
+      if (total !== 0) {
+        categoryTotals.set(index, total);
       }
     });
 
@@ -793,7 +804,31 @@ class XLSXParserService {
         }
       });
 
-      if (isPartOfExpenseSum) {
+      const total = categoryTotals.get(index);
+      if (total !== undefined) {
+        if (total < 0) {
+          mapping.expenseCategories.push({ index, name: header });
+        } else if (total > 0) {
+          mapping.incomeCategories.push({ index, name: header });
+        } else if (isPartOfExpenseSum) {
+          mapping.expenseCategories.push({ index, name: header });
+        } else if (isPartOfIncomeSum) {
+          mapping.incomeCategories.push({ index, name: header });
+        } else if (this.isExpenseCategory(header)) {
+          mapping.expenseCategories.push({ index, name: header });
+        } else if (this.isIncomeCategory(header)) {
+          mapping.incomeCategories.push({ index, name: header });
+        } else {
+          const looksLikePersonName = /^[A-Z][a-z]+$/.test(header.trim());
+          const avgValue = this.getAverageValue(this.getColumnSampleValues(rows, index, 20));
+
+          if (looksLikePersonName || avgValue > 1000) {
+            mapping.incomeCategories.push({ index, name: header });
+          } else {
+            mapping.expenseCategories.push({ index, name: header });
+          }
+        }
+      } else if (isPartOfExpenseSum) {
         mapping.expenseCategories.push({ index, name: header });
       } else if (isPartOfIncomeSum) {
         mapping.incomeCategories.push({ index, name: header });
@@ -967,6 +1002,17 @@ class XLSXParserService {
     const transactions: Transaction[] = [];
     const dateColumn = (mapping as any).dateColumn as number | undefined;
     const totalColumns = new Set(mapping.totalColumns.map(col => col.index));
+    const allCategories = [...mapping.expenseCategories, ...mapping.incomeCategories];
+    const categoryTypeDefaults = new Map<number, 'expense' | 'income'>();
+    const categoryTotals = new Map<number, number>();
+
+    allCategories.forEach((cat) => {
+      categoryTypeDefaults.set(cat.index, mapping.expenseCategories.includes(cat) ? 'expense' : 'income');
+      const total = sheetData.rows.reduce((sum, row) => sum + this.parseAmount(row[cat.index]), 0);
+      if (total !== 0) {
+        categoryTotals.set(cat.index, total);
+      }
+    });
 
     sheetData.rows.forEach((row, rowIndex) => {
       let dateStr: string;
@@ -1034,37 +1080,25 @@ class XLSXParserService {
           }
         });
       } else {
-        // No sheet name override - use inferred categories
-        mapping.expenseCategories.forEach(cat => {
+        // No sheet name override - infer per category, prefer column total sign.
+        allCategories.forEach(cat => {
           if (totalColumns.has(cat.index)) return;
           const value = this.parseAmount(row[cat.index]);
-          if (value !== 0) {
-            transactions.push({
-              id: `xlsx_exp_${rowIndex}_${cat.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-              date: dateStr,
-              description: cat.name,
-              category: cat.name,
-              amount: Math.abs(value),
-              signedAmount: value,
-              type: 'expense',
-            });
-          }
-        });
+          if (value === 0) return;
 
-        mapping.incomeCategories.forEach(cat => {
-          if (totalColumns.has(cat.index)) return;
-          const value = this.parseAmount(row[cat.index]);
-          if (value !== 0) {
-            transactions.push({
-              id: `xlsx_inc_${rowIndex}_${cat.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-              date: dateStr,
-              description: cat.name,
-              category: cat.name,
-              amount: Math.abs(value),
-              signedAmount: value,
-              type: 'income',
-            });
-          }
+          const total = categoryTotals.get(cat.index);
+          const fallback = categoryTypeDefaults.get(cat.index) || 'expense';
+          const resolvedType = total === undefined ? fallback : total < 0 ? 'expense' : 'income';
+
+          transactions.push({
+            id: `xlsx_${resolvedType}_${rowIndex}_${cat.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            date: dateStr,
+            description: cat.name,
+            category: cat.name,
+            amount: Math.abs(value),
+            signedAmount: value,
+            type: resolvedType,
+          });
         });
       }
     });
@@ -1249,13 +1283,14 @@ class XLSXParserService {
         const yearOverride = this.getSheetYear(sheet.name);
 
         // Detect sheet type: prefer data-based detection when headers include both aggregates
-        let sheetType = detectSheetTypeFromName(sheet.name);
+        const sheetTypeFromName = detectSheetTypeFromName(sheet.name);
+        let sheetType = sheetTypeFromName;
         const headerBasedType = detectSheetTypeFromHeadersAndData(sheet.headers, sheet.rows);
         const hasBothAggregates = hasExpenseIncomeAggregateColumns(sheet.headers);
 
         if (headerBasedType) {
           sheetType = headerBasedType;
-        } else if (hasBothAggregates) {
+        } else if (hasBothAggregates && !sheetTypeFromName) {
           sheetType = null;
         }
 

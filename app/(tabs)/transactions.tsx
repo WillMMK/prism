@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useBudgetStore } from '../../src/store/budgetStore';
 import { Transaction } from '../../src/types/budget';
 
@@ -40,6 +41,7 @@ const getSignedAmount = (transaction: Transaction): number =>
     : -transaction.amount;
 
 export default function Transactions() {
+  const router = useRouter();
   const { transactions, demoConfig } = useBudgetStore();
   const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
   const formatCurrencySafe = (amount: number) =>
@@ -107,6 +109,10 @@ export default function Transactions() {
           <Ionicons name="receipt-outline" size={64} color={palette.muted} />
           <Text style={styles.title}>No Transactions</Text>
           <Text style={styles.subtitle}>Connect to Google Sheets to import data.</Text>
+          <TouchableOpacity style={styles.emptyButton} onPress={() => router.push('/add-transaction')}>
+            <Text style={styles.emptyButtonText}>Add a transaction</Text>
+            <Ionicons name="add" size={18} color="#fff" />
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -149,6 +155,10 @@ export default function Transactions() {
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
       />
+
+      <TouchableOpacity style={styles.fab} onPress={() => router.push('/add-transaction')}>
+        <Ionicons name="add" size={24} color="#fff" />
+      </TouchableOpacity>
     </View>
   );
 }
@@ -196,6 +206,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 8,
   },
+  emptyButton: {
+    marginTop: 20,
+    backgroundColor: palette.accent,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  emptyButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   filterRow: {
     flexDirection: 'row',
     backgroundColor: palette.wash,
@@ -229,6 +254,22 @@ const styles = StyleSheet.create({
   },
   list: {
     paddingBottom: 20,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 28,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: palette.highlight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 6,
   },
   transactionCard: {
     backgroundColor: palette.card,
