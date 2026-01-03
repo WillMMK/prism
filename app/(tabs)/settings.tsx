@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as AuthSession from 'expo-auth-session';
 import * as DocumentPicker from 'expo-document-picker';
-import Constants from 'expo-constants';
 import { xlsxParser, SheetData, ColumnMapping, ParsedFile, SummaryMapping, MixedSheetAnalysis, DataFormat } from '../../src/services/xlsxParser';
 import { useBudgetStore } from '../../src/store/budgetStore';
 import { googleSheetsService, GOOGLE_AUTH_CONFIG, SpreadsheetFile, SheetInfo } from '../../src/services/googleSheets';
@@ -45,7 +44,6 @@ export default function Settings() {
   const [googleSearch, setGoogleSearch] = useState('');
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleRowCounts, setGoogleRowCounts] = useState<Record<string, number>>({});
-  const [googleSheetsExpanded, setGoogleSheetsExpanded] = useState(true);
   const [writeTargetsExpanded, setWriteTargetsExpanded] = useState(true);
 
   const {
@@ -61,13 +59,10 @@ export default function Settings() {
   } = useBudgetStore();
   const iosRedirectUri =
     'com.googleusercontent.apps.907648461438-lttve08jch0tc7639k16hill7smkbqur:/oauthredirect';
-  const isExpoGo = Constants.appOwnership === 'expo';
   const redirectUri = Platform.select({
-    ios: isExpoGo
-      ? AuthSession.makeRedirectUri({ useProxy: true })
-      : iosRedirectUri,
+    ios: iosRedirectUri,
     android: AuthSession.makeRedirectUri({
-      useProxy: isExpoGo,
+      useProxy: false,
       scheme: 'budget-tracker',
       path: 'oauthredirect',
     }),
@@ -135,7 +130,6 @@ export default function Settings() {
         })
         .then(() => {
           setGoogleConnected(true);
-          return loadSpreadsheets();
         })
         .catch((error) => {
           Alert.alert('Google Sign-in Failed', error.message || 'Unable to complete sign-in.');
@@ -147,7 +141,9 @@ export default function Settings() {
     googleSheetsService.getStoredToken().then((token) => {
       if (token) {
         setGoogleConnected(true);
-        loadSpreadsheets();
+        if (sheetsConfig.spreadsheetId) {
+          loadSavedSpreadsheet(sheetsConfig.spreadsheetId);
+        }
       }
     });
   }, []);
@@ -173,20 +169,37 @@ export default function Settings() {
     }
   }, [sheetsConfig.selectedTabs, sheetsConfig.expenseSheetName, sheetsConfig.incomeSheetName, setSheetsConfig]);
 
-  const loadSpreadsheets = async () => {
+  const loadSavedSpreadsheet = async (spreadsheetId: string) => {
     setIsGoogleLoading(true);
     try {
-      const files = await googleSheetsService.listSpreadsheets();
-      setGoogleFiles(files);
-      if (sheetsConfig.spreadsheetId) {
-        const match = files.find((file) => file.id === sheetsConfig.spreadsheetId) || null;
-        setSelectedSpreadsheet(match);
-        if (match) {
-          setSelectedGoogleSheets(sheetsConfig.selectedTabs || []);
-        }
-      }
+      const metadata = await googleSheetsService.getSpreadsheetMetadata(spreadsheetId);
+      setGoogleSheets(metadata.sheets);
+      setSelectedSpreadsheet({
+        id: spreadsheetId,
+        name: metadata.title || 'Google Sheets',
+        modifiedTime: new Date().toISOString(),
+      });
+      setSelectedGoogleSheets(sheetsConfig.selectedTabs || metadata.sheets.map((sheet) => sheet.title));
+      setGoogleRowCounts({});
     } catch (error: any) {
-      Alert.alert('Google Sheets', error.message || 'Failed to load spreadsheets.');
+      Alert.alert('Google Sheets', error.message || 'Failed to load spreadsheet.');
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
+  const searchSpreadsheets = async () => {
+    const query = googleSearch.trim();
+    if (!query) {
+      Alert.alert('Google Sheets', 'Type a search term first.');
+      return;
+    }
+    setIsGoogleLoading(true);
+    try {
+      const files = await googleSheetsService.listSpreadsheets(query);
+      setGoogleFiles(files);
+    } catch (error: any) {
+      Alert.alert('Google Sheets', error.message || 'Failed to search spreadsheets.');
       setGoogleConnected(false);
     } finally {
       setIsGoogleLoading(false);
@@ -381,11 +394,6 @@ export default function Settings() {
     });
   };
 
-  const filteredGoogleFiles = useMemo(() => {
-    if (!googleSearch.trim()) return googleFiles;
-    const query = googleSearch.toLowerCase();
-    return googleFiles.filter((file) => file.name.toLowerCase().includes(query));
-  }, [googleFiles, googleSearch]);
   const handlePickFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -746,34 +754,37 @@ export default function Settings() {
         <Text style={styles.sectionTitle}>Google Sheets</Text>
         <View style={styles.card}>
           <Text style={styles.cardDescription}>
-            Connect to Google Drive, pick a spreadsheet, then select which tabs to import.
+            Connect to Google, then search for your budget sheet by name.
           </Text>
 
           {!googleConnected ? (
-            <TouchableOpacity
-              style={[styles.uploadButton, !request && styles.disabledButton]}
-              onPress={() => promptAsync()}
-              disabled={!request || isGoogleLoading}
-            >
-              {isGoogleLoading ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <>
-                  <Ionicons name="logo-google" size={20} color="#fff" />
-                  <Text style={styles.uploadButtonText}>Connect Google</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            <View style={styles.permissionCard}>
+              <Text style={styles.permissionTitle}>Prism works with your data</Text>
+              <Text style={styles.permissionText}>
+                To sync your budget, we need permission to access your Google Sheets.
+              </Text>
+              <Text style={styles.permissionNote}>
+                🔒 Privacy Note: Google's permission screen will ask to \"See all spreadsheets.\"
+                This is standard wording, but Prism will strictly only access the single file you select.
+                Your data stays on your device.
+              </Text>
+              <TouchableOpacity
+                style={[styles.uploadButton, !request && styles.disabledButton]}
+                onPress={() => promptAsync()}
+                disabled={!request || isGoogleLoading}
+              >
+                {isGoogleLoading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="logo-google" size={20} color="#fff" />
+                    <Text style={styles.uploadButtonText}>Continue to Google</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           ) : (
             <View style={styles.googleActions}>
-              <TouchableOpacity
-                style={styles.secondaryButton}
-                onPress={loadSpreadsheets}
-                disabled={isGoogleLoading}
-              >
-                <Ionicons name="refresh" size={16} color={palette.accent} />
-                <Text style={styles.secondaryButtonText}>Refresh</Text>
-              </TouchableOpacity>
               <TouchableOpacity
                 style={[
                   styles.secondaryButton,
@@ -797,13 +808,23 @@ export default function Settings() {
 
           {googleConnected && (
             <View style={styles.googleSection}>
-              <TextInput
-                value={googleSearch}
-                onChangeText={setGoogleSearch}
-                placeholder="Search spreadsheets"
-                placeholderTextColor={palette.muted}
-                style={styles.searchInput}
-              />
+              <Text style={styles.sheetHeader}>Search for your budget sheet</Text>
+              <View style={styles.searchRow}>
+                <TextInput
+                  value={googleSearch}
+                  onChangeText={setGoogleSearch}
+                  placeholder="Search for your Budget sheet..."
+                  placeholderTextColor={palette.muted}
+                  style={styles.searchInput}
+                />
+                <TouchableOpacity
+                  style={[styles.searchButton, isGoogleLoading && styles.secondaryButtonDisabled]}
+                  onPress={searchSpreadsheets}
+                  disabled={isGoogleLoading}
+                >
+                  <Ionicons name="search" size={16} color="#fff" />
+                </TouchableOpacity>
+              </View>
 
               {selectedSpreadsheet ? (
                 <View style={styles.googleSelectedCard}>
@@ -820,11 +841,11 @@ export default function Settings() {
                     <Text style={styles.changeButtonText}>Change</Text>
                   </TouchableOpacity>
                 </View>
-              ) : filteredGoogleFiles.length === 0 ? (
-                <Text style={styles.emptyText}>No spreadsheets found.</Text>
+              ) : googleFiles.length === 0 ? (
+                <Text style={styles.emptyText}>Search to see matching sheets.</Text>
               ) : (
                 <View style={styles.googleList}>
-                  {filteredGoogleFiles.map((file) => (
+                  {googleFiles.map((file) => (
                     <TouchableOpacity
                       key={file.id}
                       style={styles.googleRow}
@@ -1178,6 +1199,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
+  permissionCard: {
+    backgroundColor: palette.wash,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  permissionTitle: {
+    color: palette.ink,
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  permissionText: {
+    color: palette.ink,
+    fontSize: 13,
+    marginBottom: 10,
+  },
+  permissionNote: {
+    color: palette.muted,
+    fontSize: 12,
+    marginBottom: 14,
+  },
   cardDescription: {
     color: palette.muted,
     fontSize: 14,
@@ -1224,7 +1268,14 @@ const styles = StyleSheet.create({
   googleSection: {
     marginTop: 16,
   },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
   searchInput: {
+    flex: 1,
     borderWidth: 1,
     borderColor: palette.border,
     borderRadius: 10,
@@ -1232,7 +1283,14 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     color: palette.ink,
     backgroundColor: '#fff',
-    marginBottom: 12,
+  },
+  searchButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: palette.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyText: {
     color: palette.muted,

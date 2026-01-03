@@ -43,6 +43,11 @@ export interface SheetInfo {
   columnCount: number;
 }
 
+export interface SpreadsheetMetadata {
+  title: string;
+  sheets: SheetInfo[];
+}
+
 export interface ColumnMapping {
   dateColumn: number | null;
   descriptionColumn: number | null;
@@ -160,10 +165,14 @@ export class GoogleSheetsService {
   }
 
   // List all spreadsheets from Google Drive
-  async listSpreadsheets(): Promise<SpreadsheetFile[]> {
+  async listSpreadsheets(query?: string): Promise<SpreadsheetFile[]> {
     const token = await this.getToken();
+    const escapedQuery = (query || '').replace(/'/g, "\\'");
+    const q = escapedQuery
+      ? `mimeType='application/vnd.google-apps.spreadsheet' and name contains '${escapedQuery}'`
+      : "mimeType='application/vnd.google-apps.spreadsheet'";
     const url = 'https://www.googleapis.com/drive/v3/files?' + new URLSearchParams({
-      q: "mimeType='application/vnd.google-apps.spreadsheet'",
+      q,
       fields: 'files(id,name,modifiedTime)',
       orderBy: 'modifiedTime desc',
       pageSize: '50',
@@ -209,6 +218,36 @@ export class GoogleSheetsService {
       rowCount: sheet.properties.gridProperties?.rowCount || 0,
       columnCount: sheet.properties.gridProperties?.columnCount || 0,
     }));
+  }
+
+  async getSpreadsheetMetadata(spreadsheetId: string): Promise<SpreadsheetMetadata> {
+    const token = await this.getToken();
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=properties.title,sheets.properties`;
+
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        await this.clearToken();
+        throw new Error('Authentication expired. Please sign in again.');
+      }
+      throw new Error(`Failed to fetch spreadsheet: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const sheets = (data.sheets || []).map((sheet: any) => ({
+      sheetId: sheet.properties.sheetId,
+      title: sheet.properties.title,
+      rowCount: sheet.properties.gridProperties?.rowCount || 0,
+      columnCount: sheet.properties.gridProperties?.columnCount || 0,
+    }));
+
+    return {
+      title: data.properties?.title || 'Google Sheets',
+      sheets,
+    };
   }
 
   // Fetch data from a specific sheet
