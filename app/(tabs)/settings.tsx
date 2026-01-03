@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as AuthSession from 'expo-auth-session';
 import * as DocumentPicker from 'expo-document-picker';
+import Constants from 'expo-constants';
 import { xlsxParser, SheetData, ColumnMapping, ParsedFile, SummaryMapping, MixedSheetAnalysis, DataFormat } from '../../src/services/xlsxParser';
 import { useBudgetStore } from '../../src/store/budgetStore';
 import { googleSheetsService, GOOGLE_AUTH_CONFIG, SpreadsheetFile, SheetInfo } from '../../src/services/googleSheets';
@@ -45,6 +46,7 @@ export default function Settings() {
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleRowCounts, setGoogleRowCounts] = useState<Record<string, number>>({});
   const [googleSheetsExpanded, setGoogleSheetsExpanded] = useState(true);
+  const [writeTargetsExpanded, setWriteTargetsExpanded] = useState(true);
 
   const {
     setTransactions,
@@ -59,10 +61,13 @@ export default function Settings() {
   } = useBudgetStore();
   const iosRedirectUri =
     'com.googleusercontent.apps.907648461438-lttve08jch0tc7639k16hill7smkbqur:/oauthredirect';
+  const isExpoGo = Constants.appOwnership === 'expo';
   const redirectUri = Platform.select({
-    ios: iosRedirectUri,
+    ios: isExpoGo
+      ? AuthSession.makeRedirectUri({ useProxy: true })
+      : iosRedirectUri,
     android: AuthSession.makeRedirectUri({
-      useProxy: false,
+      useProxy: isExpoGo,
       scheme: 'budget-tracker',
       path: 'oauthredirect',
     }),
@@ -83,6 +88,7 @@ export default function Settings() {
       extraParams: {
         access_type: 'offline',
         prompt: 'consent',
+        include_granted_scopes: 'true',
       },
     },
     GOOGLE_AUTH_CONFIG.discovery
@@ -108,9 +114,18 @@ export default function Settings() {
         },
         GOOGLE_AUTH_CONFIG.discovery
       )
-        .then((tokenResult) => {
+        .then(async (tokenResult) => {
           if (!tokenResult.accessToken) {
             throw new Error('No access token returned.');
+          }
+          if (!tokenResult.refreshToken) {
+            const existing = await googleSheetsService.getStoredToken();
+            if (!existing?.refreshToken) {
+              Alert.alert(
+                'Google Sign-in',
+                'Refresh token not returned. You may need to revoke access in your Google account and sign in again.'
+              );
+            }
           }
           return googleSheetsService.storeToken(
             tokenResult.accessToken,
@@ -142,6 +157,21 @@ export default function Settings() {
       setSelectedGoogleSheets(sheetsConfig.selectedTabs);
     }
   }, [sheetsConfig.spreadsheetId, sheetsConfig.selectedTabs]);
+
+  useEffect(() => {
+    if (!sheetsConfig.expenseSheetName || !sheetsConfig.incomeSheetName) {
+      const tabs = sheetsConfig.selectedTabs || [];
+      if (tabs.length === 0) return;
+      const incomeTab = tabs.find((name) => name.toLowerCase().includes('income')) || '';
+      const expenseTab = tabs.find((name) => !name.toLowerCase().includes('income')) || '';
+      if (incomeTab || expenseTab) {
+        setSheetsConfig({
+          expenseSheetName: sheetsConfig.expenseSheetName || expenseTab,
+          incomeSheetName: sheetsConfig.incomeSheetName || incomeTab,
+        });
+      }
+    }
+  }, [sheetsConfig.selectedTabs, sheetsConfig.expenseSheetName, sheetsConfig.incomeSheetName, setSheetsConfig]);
 
   const loadSpreadsheets = async () => {
     setIsGoogleLoading(true);
@@ -211,6 +241,10 @@ export default function Settings() {
         selectedSpreadsheet.id,
         selectedGoogleSheets
       );
+      const incomeTab =
+        selectedGoogleSheets.find((name) => name.toLowerCase().includes('income')) || '';
+      const expenseTab =
+        selectedGoogleSheets.find((name) => !name.toLowerCase().includes('income')) || '';
       setTransactions(importedTransactions, {
         sourceFile: selectedSpreadsheet.name,
         sheetNames: selectedGoogleSheets,
@@ -218,6 +252,8 @@ export default function Settings() {
       setSheetsConfig({
         spreadsheetId: selectedSpreadsheet.id,
         sheetName: selectedGoogleSheets[0],
+        expenseSheetName: expenseTab || selectedGoogleSheets[0],
+        incomeSheetName: incomeTab || selectedGoogleSheets[0],
         isConnected: true,
         selectedTabs: selectedGoogleSheets,
         lastKnownTabs: googleSheets.map((sheet) => sheet.title),
@@ -252,6 +288,8 @@ export default function Settings() {
     setSheetsConfig({
       spreadsheetId: '',
       sheetName: '',
+      expenseSheetName: '',
+      incomeSheetName: '',
       isConnected: false,
       selectedTabs: [],
       lastKnownTabs: [],
@@ -335,6 +373,12 @@ export default function Settings() {
     setGoogleSheets([]);
     setSelectedGoogleSheets([]);
     setGoogleRowCounts({});
+  };
+
+  const setWriteTarget = (type: 'expense' | 'income', sheetName: string) => {
+    setSheetsConfig({
+      ...(type === 'expense' ? { expenseSheetName: sheetName } : { incomeSheetName: sheetName }),
+    });
   };
 
   const filteredGoogleFiles = useMemo(() => {
@@ -825,6 +869,81 @@ export default function Settings() {
                 </TouchableOpacity>
               ))}
 
+              {selectedGoogleSheets.length > 0 && (
+                <View style={styles.writeTargetCard}>
+                  <TouchableOpacity
+                    style={styles.writeTargetHeader}
+                    onPress={() => setWriteTargetsExpanded((prev) => !prev)}
+                  >
+                    <Text style={styles.writeTargetTitle}>Write-back targets</Text>
+                    <Ionicons
+                      name={writeTargetsExpanded ? 'chevron-up' : 'chevron-down'}
+                      size={16}
+                      color={palette.muted}
+                    />
+                  </TouchableOpacity>
+                  {writeTargetsExpanded && (
+                    <>
+                      <View style={styles.writeTargetRow}>
+                        <Text style={styles.writeTargetLabel}>Expense →</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                          <View style={styles.writeTargetChips}>
+                            {selectedGoogleSheets.map((name) => (
+                              <TouchableOpacity
+                                key={`expense-${name}`}
+                                style={[
+                                  styles.writeTargetChip,
+                                  sheetsConfig.expenseSheetName === name && styles.writeTargetChipActive,
+                                ]}
+                                onPress={() => setWriteTarget('expense', name)}
+                              >
+                                <Text
+                                  style={[
+                                    styles.writeTargetChipText,
+                                    sheetsConfig.expenseSheetName === name && styles.writeTargetChipTextActive,
+                                  ]}
+                                >
+                                  {name}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </ScrollView>
+                      </View>
+                      <View style={styles.writeTargetRow}>
+                        <Text style={styles.writeTargetLabel}>Income →</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                          <View style={styles.writeTargetChips}>
+                            {selectedGoogleSheets.map((name) => (
+                              <TouchableOpacity
+                                key={`income-${name}`}
+                                style={[
+                                  styles.writeTargetChip,
+                                  sheetsConfig.incomeSheetName === name && styles.writeTargetChipActive,
+                                ]}
+                                onPress={() => setWriteTarget('income', name)}
+                              >
+                                <Text
+                                  style={[
+                                    styles.writeTargetChipText,
+                                    sheetsConfig.incomeSheetName === name && styles.writeTargetChipTextActive,
+                                  ]}
+                                >
+                                  {name}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </ScrollView>
+                      </View>
+                      <Text style={styles.writeTargetNote}>
+                        Writes append only to the selected sheet for each type.
+                      </Text>
+                    </>
+                  )}
+                </View>
+              )}
+
               <TouchableOpacity
                 style={[styles.importButton, isGoogleLoading && styles.disabledButton]}
                 onPress={handleGoogleImport}
@@ -1212,6 +1331,59 @@ const styles = StyleSheet.create({
     color: palette.muted,
     fontSize: 12,
     marginTop: 2,
+  },
+  writeTargetCard: {
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: palette.border,
+  },
+  writeTargetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  writeTargetTitle: {
+    color: palette.ink,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  writeTargetRow: {
+    marginBottom: 10,
+  },
+  writeTargetLabel: {
+    color: palette.muted,
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  writeTargetChips: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  writeTargetChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.wash,
+  },
+  writeTargetChipActive: {
+    backgroundColor: palette.accent,
+    borderColor: palette.accent,
+  },
+  writeTargetChipText: {
+    color: palette.ink,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  writeTargetChipTextActive: {
+    color: '#fff',
+  },
+  writeTargetNote: {
+    color: palette.muted,
+    fontSize: 11,
   },
   importButton: {
     flexDirection: 'row',

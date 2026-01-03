@@ -40,6 +40,8 @@ export interface CategorySpending {
 export interface GoogleSheetsConfig {
   spreadsheetId: string;
   sheetName: string;
+  expenseSheetName?: string;
+  incomeSheetName?: string;
   isConnected: boolean;
   lastSync?: string;
   selectedTabs?: string[];

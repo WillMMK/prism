@@ -57,6 +57,16 @@ const buildTransaction = (
   };
 };
 
+const resolveTargetSheet = (
+  type: 'income' | 'expense',
+  config: { sheetName: string; expenseSheetName?: string; incomeSheetName?: string }
+) => {
+  if (type === 'income') {
+    return config.incomeSheetName || config.sheetName;
+  }
+  return config.expenseSheetName || config.sheetName;
+};
+
 export default function AddTransaction() {
   const router = useRouter();
   const { transactions, addTransaction, sheetsConfig } = useBudgetStore();
@@ -108,18 +118,25 @@ export default function AddTransaction() {
       return;
     }
 
+    const targetSheet = resolveTargetSheet(type, sheetsConfig);
+    if (!targetSheet) {
+      Alert.alert('Select a write sheet', 'Pick an expense/income sheet in Settings to sync new transactions.');
+      return;
+    }
+
     void (async () => {
       try {
         await googleSheetsService.appendTransaction(
           sheetsConfig.spreadsheetId,
-          sheetsConfig.sheetName,
+          targetSheet,
           transaction
         );
+        Alert.alert('Synced', `Added to ${targetSheet}`);
       } catch (error) {
         await enqueuePendingTransaction(
           transaction,
           sheetsConfig.spreadsheetId,
-          sheetsConfig.sheetName
+          targetSheet
         );
         Alert.alert('Sync pending', 'We will retry this transaction when you are back online.');
       }
