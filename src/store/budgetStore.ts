@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Transaction, Category, GoogleSheetsConfig, BudgetSummary, CategorySpending, MonthlyReport, YearlyReport, YearOverYearComparison, TrendData } from '../types/budget';
+import { Transaction, Category, GoogleSheetsConfig, DemoConfig, BudgetSummary, CategorySpending, MonthlyReport, YearlyReport, YearOverYearComparison, TrendData } from '../types/budget';
 
 export interface ImportMetadata {
   lastImportDate: string;
@@ -14,6 +14,7 @@ interface BudgetState {
   transactions: Transaction[];
   categories: Category[];
   sheetsConfig: GoogleSheetsConfig;
+  demoConfig: DemoConfig;
   importMetadata: ImportMetadata | null;
   isLoading: boolean;
   error: string | null;
@@ -24,6 +25,7 @@ interface BudgetState {
   addTransaction: (transaction: Transaction) => void;
   removeTransaction: (id: string) => void;
   setSheetsConfig: (config: Partial<GoogleSheetsConfig>) => void;
+  setDemoConfig: (config: Partial<DemoConfig>) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   clearData: () => void;
@@ -87,6 +89,9 @@ export const useBudgetStore = create<BudgetState>()(
         selectedTabs: [],
         lastKnownTabs: [],
       },
+      demoConfig: {
+        hideAmounts: false,
+      },
       importMetadata: null,
       isLoading: false,
       error: null,
@@ -113,6 +118,11 @@ export const useBudgetStore = create<BudgetState>()(
       setSheetsConfig: (config) =>
         set((state) => ({
           sheetsConfig: { ...state.sheetsConfig, ...config },
+        })),
+
+      setDemoConfig: (config) =>
+        set((state) => ({
+          demoConfig: { ...state.demoConfig, ...config },
         })),
 
       setLoading: (isLoading) => set({ isLoading }),

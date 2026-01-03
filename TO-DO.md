@@ -1,0 +1,3 @@
+- Improve schema detection for non-English headers by prioritizing data patterns (sign distribution, variance, magnitude) and only fall back to headers when they are strong matches.
+- Add column heuristics for total detection based on magnitude and sum relationships.
+- Refine mixed row detection using per-row numeric density and value magnitude to split summaries from details.

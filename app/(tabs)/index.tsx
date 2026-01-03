@@ -179,7 +179,7 @@ const ensureDistinctColors = (items: CategorySpending[]) =>
   }));
 
 export default function Dashboard() {
-  const { transactions, categories, getRecentTransactions, getAvailableYears } = useBudgetStore();
+  const { transactions, categories, getRecentTransactions, getAvailableYears, demoConfig } = useBudgetStore();
   const [categoryScope, setCategoryScope] = useState<Scope>('month');
   const [balanceScope, setBalanceScope] = useState<BalanceScope>('year');
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
@@ -216,6 +216,13 @@ export default function Dashboard() {
   }, [scopedTransactions, categories]);
 
   const scopeLabel = categoryScope === 'month' ? 'This Month' : 'This Year';
+  const maskAmount = demoConfig.hideAmounts;
+
+  const formatCurrencySafe = (amount: number) =>
+    maskAmount ? '•••' : formatCurrency(amount);
+
+  const formatCompactCurrencySafe = (amount: number) =>
+    maskAmount ? '•••' : formatCompactCurrency(amount);
 
   const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<number | null>(null);
   const pieCategories = categorySpending.slice(0, 6);
@@ -296,19 +303,19 @@ export default function Dashboard() {
             ))}
           </ScrollView>
         )}
-        <Text style={styles.heroAmount}>{formatCurrency(balanceSummary.balance)}</Text>
+        <Text style={styles.heroAmount}>{formatCurrencySafe(balanceSummary.balance)}</Text>
         <View style={styles.heroStats}>
           <View style={styles.heroStatItem}>
             <Text style={styles.heroStatLabel}>Income</Text>
             <Text style={styles.heroStatValuePositive}>
-              {formatCurrency(balanceSummary.totalIncome)}
+              {formatCurrencySafe(balanceSummary.totalIncome)}
             </Text>
           </View>
           <View style={styles.heroStatDivider} />
           <View style={styles.heroStatItem}>
             <Text style={styles.heroStatLabel}>Expenses</Text>
             <Text style={styles.heroStatValueNegative}>
-              {formatCurrency(balanceSummary.totalExpenses)}
+              {formatCurrencySafe(balanceSummary.totalExpenses)}
             </Text>
           </View>
           <View style={styles.heroStatDivider} />
@@ -368,7 +375,7 @@ export default function Dashboard() {
                   {activeCategory ? activeCategory.category : 'Total Spend'}
                 </Text>
                 <Text style={styles.pieCenterValue}>
-                  {formatCompactCurrency(activeCategory ? activeCategory.amount : totalCategorySpend)}
+                  {formatCompactCurrencySafe(activeCategory ? activeCategory.amount : totalCategorySpend)}
                 </Text>
                 {activeCategory && (
                   <Text style={styles.pieCenterSub}>
@@ -437,7 +444,7 @@ export default function Dashboard() {
                   <Text style={styles.transactionMeta}>{formatShortDate(tx.date)}</Text>
                 </View>
                 <Text style={[styles.transactionAmount, { color: amountColor }]}>
-                  {sign}{formatCurrency(Math.abs(signed))}
+                  {sign}{formatCurrencySafe(Math.abs(signed))}
                 </Text>
               </View>
             );
@@ -773,3 +780,8 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
 });
+  const formatCurrencySafe = (amount: number) =>
+    maskAmount ? '•••' : formatCurrency(amount);
+
+  const formatCompactCurrencySafe = (amount: number) =>
+    maskAmount ? '•••' : formatCompactCurrency(amount);

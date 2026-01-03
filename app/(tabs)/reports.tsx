@@ -152,12 +152,18 @@ export default function Reports() {
     getYearlyReports,
     getTrends,
     getAvailableYears,
+    demoConfig,
   } = useBudgetStore();
 
   const monthlyReports = getMonthlyReports(12);
   const yearlyReports = getYearlyReports();
   const trends = getTrends();
   const availableYears = getAvailableYears();
+  const maskAmount = demoConfig.hideAmounts;
+  const formatCurrencySafe = (amount: number) =>
+    maskAmount ? '•••' : formatCurrency(amount);
+  const formatCompactCurrencySafe = (amount: number) =>
+    maskAmount ? '•••' : formatCompactCurrency(amount);
 
   useEffect(() => {
     if (availableYears.length > 0 && !availableYears.includes(focusedYear)) {
@@ -316,7 +322,7 @@ export default function Reports() {
                   {activeCategory ? activeCategory.category : 'Total Spend'}
                 </Text>
                 <Text style={styles.pieCenterValue}>
-                  {formatCompactCurrency(activeCategory ? activeCategory.amount : totalCategorySpend)}
+                  {formatCompactCurrencySafe(activeCategory ? activeCategory.amount : totalCategorySpend)}
                 </Text>
                 {activeCategory && (
                   <Text style={styles.pieCenterSub}>
@@ -361,16 +367,16 @@ export default function Reports() {
           <View style={styles.monthStats}>
             <View style={styles.monthStat}>
               <Text style={styles.monthStatLabel}>Income</Text>
-              <Text style={styles.monthStatIncome}>{formatCurrency(report.income)}</Text>
+              <Text style={styles.monthStatIncome}>{formatCurrencySafe(report.income)}</Text>
             </View>
             <View style={styles.monthStat}>
               <Text style={styles.monthStatLabel}>Expenses</Text>
-              <Text style={styles.monthStatExpense}>{formatCurrency(report.expenses)}</Text>
+              <Text style={styles.monthStatExpense}>{formatCurrencySafe(report.expenses)}</Text>
             </View>
             <View style={styles.monthStat}>
               <Text style={styles.monthStatLabel}>Savings</Text>
               <Text style={[styles.monthStatSavings, report.savings < 0 && styles.negativeSavings]}>
-                {formatCurrency(report.savings)}
+                {formatCurrencySafe(report.savings)}
               </Text>
             </View>
           </View>
@@ -401,11 +407,11 @@ export default function Reports() {
             <View style={styles.yearStatRow}>
               <View style={styles.yearStat}>
                 <Text style={styles.yearStatLabel}>Total Income</Text>
-                <Text style={styles.yearStatIncome}>{formatCompactCurrency(report.totalIncome)}</Text>
+                <Text style={styles.yearStatIncome}>{formatCompactCurrencySafe(report.totalIncome)}</Text>
               </View>
               <View style={styles.yearStat}>
                 <Text style={styles.yearStatLabel}>Total Expenses</Text>
-                <Text style={styles.yearStatExpense}>{formatCompactCurrency(report.totalExpenses)}</Text>
+                <Text style={styles.yearStatExpense}>{formatCompactCurrencySafe(report.totalExpenses)}</Text>
                 {yearlyByYear.has(report.year - 1) && (
                   <Text style={styles.yearDelta}>
                     {(() => {
@@ -423,13 +429,13 @@ export default function Reports() {
               <View style={styles.yearStat}>
                 <Text style={styles.yearStatLabel}>Net Savings</Text>
                 <Text style={[styles.yearStatSavings, report.savings < 0 && styles.negativeSavings]}>
-                  {formatCompactCurrency(report.savings)}
+                  {formatCompactCurrencySafe(report.savings)}
                 </Text>
               </View>
               <View style={styles.yearStat}>
                 <Text style={styles.yearStatLabel}>Avg Spend/mo</Text>
                 <Text style={styles.yearStatAvg}>
-                  {formatCompactCurrency(report.monthlyAvgExpense)}
+                  {formatCompactCurrencySafe(report.monthlyAvgExpense)}
                 </Text>
               </View>
             </View>
@@ -484,7 +490,7 @@ export default function Reports() {
                   {activeYearCategory ? activeYearCategory.category : 'Total Spend'}
                 </Text>
                 <Text style={styles.pieCenterValue}>
-                  {formatCompactCurrency(activeYearCategory ? activeYearCategory.amount : totalYearCategorySpend)}
+                  {formatCompactCurrencySafe(activeYearCategory ? activeYearCategory.amount : totalYearCategorySpend)}
                 </Text>
                 {activeYearCategory && (
                   <Text style={styles.pieCenterSub}>
@@ -550,7 +556,7 @@ export default function Reports() {
                     <Text style={styles.trendLabel}>
                       {trend.type.charAt(0).toUpperCase() + trend.type.slice(1)}
                     </Text>
-                    <Text style={styles.trendAvg}>Avg: {formatCurrency(trend.recentAvg)}/mo</Text>
+                    <Text style={styles.trendAvg}>Avg: {formatCurrencySafe(trend.recentAvg)}/mo</Text>
                   </View>
                 </View>
                 <View style={styles.trendRight}>
@@ -600,8 +606,8 @@ export default function Reports() {
           <View>
             <Text style={styles.timelineHint}>
               {selectedTimelineIndex === null
-                ? `Average: ${formatCompactCurrency(averageTimelineValue)}`
-                : `${timelineData[selectedTimelineIndex]?.label}: ${formatCompactCurrency(timelineData[selectedTimelineIndex]?.value || 0)}`}
+                ? `Average: ${formatCompactCurrencySafe(averageTimelineValue)}`
+                : `${timelineData[selectedTimelineIndex]?.label}: ${formatCompactCurrencySafe(timelineData[selectedTimelineIndex]?.value || 0)}`}
             </Text>
             <View style={styles.timelineChart}>
               <View style={[styles.referenceLine, { top: timelineLineOffset }]} />

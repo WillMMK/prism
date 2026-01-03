@@ -61,6 +61,12 @@ export class GoogleSheetsService {
   private secureStore: typeof SecureStoreType | null = null;
   private readonly webTokenKey = 'google_access_token';
 
+  private getClientIdForPlatform(): string {
+    if (Platform.OS === 'ios') return GOOGLE_AUTH_CONFIG.iosClientId;
+    if (Platform.OS === 'android') return GOOGLE_AUTH_CONFIG.androidClientId || GOOGLE_AUTH_CONFIG.webClientId;
+    return GOOGLE_AUTH_CONFIG.webClientId;
+  }
+
   private getSecureStore(): typeof SecureStoreType {
     if (!this.secureStore) {
       this.secureStore = require('expo-secure-store') as typeof SecureStoreType;
@@ -68,24 +74,36 @@ export class GoogleSheetsService {
     return this.secureStore;
   }
 
-  async getStoredToken(): Promise<string | null> {
+  async getStoredToken(): Promise<{ accessToken: string; refreshToken?: string; expiresAt?: number } | null> {
     try {
       if (Platform.OS === 'web') {
-        return localStorage.getItem(this.webTokenKey);
+        const raw = localStorage.getItem(this.webTokenKey);
+        return raw ? JSON.parse(raw) : null;
       }
       const secureStore = this.getSecureStore();
-      return await secureStore.getItemAsync(this.webTokenKey);
+      const raw = await secureStore.getItemAsync(this.webTokenKey);
+      return raw ? JSON.parse(raw) : null;
     } catch {
       return null;
     }
   }
 
-  async storeToken(token: string): Promise<void> {
+  async storeToken(
+    token: string,
+    refreshToken?: string,
+    expiresInSeconds?: number
+  ): Promise<void> {
+    const existing = await this.getStoredToken();
+    const payload = {
+      accessToken: token,
+      refreshToken: refreshToken || existing?.refreshToken,
+      expiresAt: expiresInSeconds ? Date.now() + expiresInSeconds * 1000 : existing?.expiresAt,
+    };
     if (Platform.OS === 'web') {
-      localStorage.setItem(this.webTokenKey, token);
+      localStorage.setItem(this.webTokenKey, JSON.stringify(payload));
     } else {
       const secureStore = this.getSecureStore();
-      await secureStore.setItemAsync(this.webTokenKey, token);
+      await secureStore.setItemAsync(this.webTokenKey, JSON.stringify(payload));
     }
     this.accessToken = token;
   }
@@ -100,11 +118,43 @@ export class GoogleSheetsService {
     this.accessToken = null;
   }
 
+  private async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; expiresIn?: number }> {
+    const response = await fetch(discovery.tokenEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: this.getClientIdForPlatform(),
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to refresh access token.');
+    }
+
+    const data = await response.json();
+    return {
+      accessToken: data.access_token,
+      expiresIn: data.expires_in,
+    };
+  }
+
   private async getToken(): Promise<string> {
-    const token = this.accessToken || (await this.getStoredToken());
+    const stored = await this.getStoredToken();
+    const token = this.accessToken || stored?.accessToken;
     if (!token) {
       throw new Error('Not authenticated with Google');
     }
+    if (stored?.expiresAt && stored.expiresAt <= Date.now()) {
+      if (!stored.refreshToken) {
+        throw new Error('Authentication expired. Please sign in again.');
+      }
+      const refreshed = await this.refreshAccessToken(stored.refreshToken);
+      await this.storeToken(refreshed.accessToken, stored.refreshToken, refreshed.expiresIn);
+      return refreshed.accessToken;
+    }
+
     return token;
   }
 

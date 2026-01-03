@@ -54,6 +54,8 @@ export default function Settings() {
     _hasHydrated,
     setSheetsConfig,
     sheetsConfig,
+    demoConfig,
+    setDemoConfig,
   } = useBudgetStore();
   const iosRedirectUri =
     'com.googleusercontent.apps.907648461438-lttve08jch0tc7639k16hill7smkbqur:/oauthredirect';
@@ -78,6 +80,10 @@ export default function Settings() {
       redirectUri,
       responseType: AuthSession.ResponseType.Code,
       usePKCE: true,
+      extraParams: {
+        access_type: 'offline',
+        prompt: 'consent',
+      },
     },
     GOOGLE_AUTH_CONFIG.discovery
   );
@@ -106,7 +112,11 @@ export default function Settings() {
           if (!tokenResult.accessToken) {
             throw new Error('No access token returned.');
           }
-          return googleSheetsService.storeToken(tokenResult.accessToken);
+          return googleSheetsService.storeToken(
+            tokenResult.accessToken,
+            tokenResult.refreshToken || undefined,
+            tokenResult.expiresIn || undefined
+          );
         })
         .then(() => {
           setGoogleConnected(true);
@@ -959,6 +969,23 @@ export default function Settings() {
                 </View>
               </View>
 
+              <View style={styles.demoRow}>
+                <View style={styles.demoInfo}>
+                  <Text style={styles.demoTitle}>Demo mode</Text>
+                  <Text style={styles.demoSubtitle}>
+                    Hide currency amounts while keeping percentages
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.demoButton, demoConfig.hideAmounts && styles.demoButtonActive]}
+                  onPress={() => setDemoConfig({ hideAmounts: !demoConfig.hideAmounts })}
+                >
+                  <Text style={[styles.demoButtonText, demoConfig.hideAmounts && styles.demoButtonTextActive]}>
+                    {demoConfig.hideAmounts ? 'Hidden' : 'Show'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
               <TouchableOpacity
                 style={styles.clearButton}
                 onPress={handleClearData}
@@ -1364,6 +1391,49 @@ const styles = StyleSheet.create({
     color: palette.muted,
     fontSize: 12,
     marginTop: 4,
+  },
+  demoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: palette.border,
+    marginTop: 12,
+  },
+  demoInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  demoTitle: {
+    color: palette.ink,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  demoSubtitle: {
+    color: palette.muted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  demoButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.wash,
+  },
+  demoButtonActive: {
+    backgroundColor: palette.card,
+    borderColor: palette.accentSoft,
+  },
+  demoButtonText: {
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  demoButtonTextActive: {
+    color: palette.ink,
   },
   clearButton: {
     flexDirection: 'row',

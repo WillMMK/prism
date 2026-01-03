@@ -40,8 +40,10 @@ const getSignedAmount = (transaction: Transaction): number =>
     : -transaction.amount;
 
 export default function Transactions() {
-  const { transactions } = useBudgetStore();
+  const { transactions, demoConfig } = useBudgetStore();
   const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
+  const formatCurrencySafe = (amount: number) =>
+    demoConfig.hideAmounts ? '•••' : formatCurrency(amount);
 
   const filteredTransactions = transactions
     .filter((tx) => filter === 'all' || tx.type === filter)
@@ -89,9 +91,8 @@ export default function Transactions() {
             </Text>
           </View>
         </View>
-        <Text style={[styles.amount, { color: amountColor }]}
-        >
-          {sign}{formatCurrency(Math.abs(signed))}
+        <Text style={[styles.amount, { color: amountColor }]}>
+          {sign}{formatCurrencySafe(Math.abs(signed))}
         </Text>
       </View>
     );

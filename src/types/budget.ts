@@ -46,6 +46,10 @@ export interface GoogleSheetsConfig {
   lastKnownTabs?: string[];
 }
 
+export interface DemoConfig {
+  hideAmounts: boolean;
+}
+
 export interface ChartData {
   labels: string[];
   datasets: {
