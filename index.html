@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,6 +11,7 @@
             padding: 0;
             box-sizing: border-box;
         }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -19,39 +21,41 @@
             justify-content: center;
             padding: 20px;
         }
+
         .container {
             background: white;
             border-radius: 24px;
             padding: 48px;
             max-width: 600px;
             text-align: center;
-            box-shadow: 0 25px 50px rgba(0,0,0,0.15);
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
         }
+
         .logo {
             width: 80px;
             height: 80px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border-radius: 20px;
             margin: 0 auto 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 36px;
+            object-fit: cover;
         }
+
         h1 {
             font-size: 32px;
             color: #1a1a2e;
             margin-bottom: 12px;
         }
+
         .tagline {
             color: #666;
             font-size: 18px;
             margin-bottom: 32px;
         }
+
         .features {
             text-align: left;
             margin-bottom: 32px;
         }
+
         .feature {
             display: flex;
             align-items: center;
@@ -59,9 +63,11 @@
             padding: 12px 0;
             border-bottom: 1px solid #eee;
         }
+
         .feature:last-child {
             border-bottom: none;
         }
+
         .feature-icon {
             width: 40px;
             height: 40px;
@@ -72,9 +78,11 @@
             justify-content: center;
             font-size: 20px;
         }
+
         .feature-text {
             color: #333;
         }
+
         .links {
             display: flex;
             gap: 24px;
@@ -83,13 +91,16 @@
             padding-top: 24px;
             border-top: 1px solid #eee;
         }
+
         a {
             color: #667eea;
             text-decoration: none;
         }
+
         a:hover {
             text-decoration: underline;
         }
+
         .footer {
             margin-top: 24px;
             color: #999;
@@ -97,12 +108,13 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
-        <div class="logo">💰</div>
+        <img src="prism-icon.png" alt="Prism" class="logo">
         <h1>Prism</h1>
         <p class="tagline">Track your finances with Google Sheets integration</p>
-        
+
         <div class="features">
             <div class="feature">
                 <div class="feature-icon">📊</div>
@@ -130,4 +142,5 @@
         <p class="footer">© 2026 Prism. All rights reserved.</p>
     </div>
 </body>
+
 </html>
