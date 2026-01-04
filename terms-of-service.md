@@ -76,7 +76,7 @@ These Terms are governed by the laws of Australia. Any disputes shall be resolve
 
 For questions about these Terms, contact us at:
 
-**Email:** [your-email@example.com]
+**Email:** willchancot@gmail.com
 
 ---
 
