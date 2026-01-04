@@ -15,6 +15,7 @@ import * as AuthSession from 'expo-auth-session';
 import * as DocumentPicker from 'expo-document-picker';
 import { xlsxParser, SheetData, ColumnMapping, ParsedFile, SummaryMapping, MixedSheetAnalysis, DataFormat } from '../../src/services/xlsxParser';
 import { useBudgetStore } from '../../src/store/budgetStore';
+import { SheetWriteMode } from '../../src/types/budget';
 import { googleSheetsService, GOOGLE_AUTH_CONFIG, SpreadsheetFile, SheetInfo } from '../../src/services/googleSheets';
 
 const palette = {
@@ -45,6 +46,7 @@ export default function Settings() {
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleRowCounts, setGoogleRowCounts] = useState<Record<string, number>>({});
   const [writeTargetsExpanded, setWriteTargetsExpanded] = useState(true);
+  const [detectedWriteModes, setDetectedWriteModes] = useState<Record<string, 'grid' | 'transaction'>>({});
 
   const {
     setTransactions,
@@ -130,6 +132,10 @@ export default function Settings() {
         })
         .then(() => {
           setGoogleConnected(true);
+          if (sheetsConfig.spreadsheetId && sheetsConfig.selectedTabs?.length) {
+            setSheetsConfig({ isConnected: true });
+            loadSavedSpreadsheet(sheetsConfig.spreadsheetId);
+          }
         })
         .catch((error) => {
           Alert.alert('Google Sign-in Failed', error.message || 'Unable to complete sign-in.');
@@ -143,6 +149,9 @@ export default function Settings() {
         setGoogleConnected(true);
         if (sheetsConfig.spreadsheetId) {
           loadSavedSpreadsheet(sheetsConfig.spreadsheetId);
+          if (sheetsConfig.selectedTabs?.length) {
+            setSheetsConfig({ isConnected: true });
+          }
         }
       }
     });
@@ -168,6 +177,41 @@ export default function Settings() {
       }
     }
   }, [sheetsConfig.selectedTabs, sheetsConfig.expenseSheetName, sheetsConfig.incomeSheetName, setSheetsConfig]);
+
+  useEffect(() => {
+    const sheetNames = [sheetsConfig.expenseSheetName, sheetsConfig.incomeSheetName]
+      .filter((name): name is string => Boolean(name && name.trim().length > 0));
+    if (!sheetsConfig.isConnected || !sheetsConfig.spreadsheetId || sheetNames.length === 0) {
+      setDetectedWriteModes({});
+      return;
+    }
+    let cancelled = false;
+    const loadFormats = async () => {
+      const entries = await Promise.all(
+        sheetNames.map(async (name) => {
+          try {
+            const mode = await googleSheetsService.detectWriteMode(
+              sheetsConfig.spreadsheetId,
+              name
+            );
+            return [name, mode] as const;
+          } catch {
+            return [name, undefined] as const;
+          }
+        })
+      );
+      if (cancelled) return;
+      const next: Record<string, 'grid' | 'transaction'> = {};
+      entries.forEach(([name, mode]) => {
+        if (mode) next[name] = mode;
+      });
+      setDetectedWriteModes(next);
+    };
+    void loadFormats();
+    return () => {
+      cancelled = true;
+    };
+  }, [sheetsConfig.spreadsheetId, sheetsConfig.expenseSheetName, sheetsConfig.incomeSheetName, sheetsConfig.isConnected]);
 
   const loadSavedSpreadsheet = async (spreadsheetId: string) => {
     setIsGoogleLoading(true);
@@ -275,6 +319,7 @@ export default function Settings() {
 
       const incomeCount = importedTransactions.filter(t => t.type === 'income').length;
       const expenseCount = importedTransactions.filter(t => t.type === 'expense').length;
+      setTabsExpanded(false);
 
       Alert.alert(
         'Google Sheets Import',
@@ -289,6 +334,8 @@ export default function Settings() {
     }
   };
 
+  const [tabsExpanded, setTabsExpanded] = useState(true);
+
   const handleGoogleDisconnect = async () => {
     await googleSheetsService.clearToken();
     setGoogleConnected(false);
@@ -299,14 +346,8 @@ export default function Settings() {
     setGoogleSearch('');
     setGoogleRowCounts({});
     setSheetsConfig({
-      spreadsheetId: '',
-      sheetName: '',
-      expenseSheetName: '',
-      incomeSheetName: '',
+      ...sheetsConfig,
       isConnected: false,
-      selectedTabs: [],
-      lastKnownTabs: [],
-      lastSync: undefined,
     });
   };
 
@@ -392,6 +433,22 @@ export default function Settings() {
     setSheetsConfig({
       ...(type === 'expense' ? { expenseSheetName: sheetName } : { incomeSheetName: sheetName }),
     });
+  };
+
+  const setWriteMode = (sheetName: string, mode: SheetWriteMode) => {
+    const current = sheetsConfig.writeModeBySheet || {};
+    setSheetsConfig({
+      writeModeBySheet: {
+        ...current,
+        [sheetName]: mode,
+      },
+    });
+  };
+
+  const formatDetectedMode = (mode?: 'grid' | 'transaction') => {
+    if (mode === 'grid') return 'Daily Grid';
+    if (mode === 'transaction') return 'Transaction Log';
+    return 'Unknown';
   };
 
   const handlePickFile = async () => {
@@ -867,10 +924,20 @@ export default function Settings() {
 
           {selectedSpreadsheet && googleSheets.length > 0 && (
             <View style={styles.googleSection}>
-              <Text style={styles.sheetHeader}>
-                Tabs in {selectedSpreadsheet.name}
-              </Text>
-              {googleSheets.map((sheet) => (
+              <TouchableOpacity
+                style={styles.sheetHeaderRow}
+                onPress={() => setTabsExpanded((prev) => !prev)}
+              >
+                <Text style={styles.sheetHeader}>
+                  Tabs in {selectedSpreadsheet.name}
+                </Text>
+                <Ionicons
+                  name={tabsExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={16}
+                  color={palette.muted}
+                />
+              </TouchableOpacity>
+              {tabsExpanded && googleSheets.map((sheet) => (
                 <TouchableOpacity
                   key={sheet.sheetId}
                   style={styles.sheetRow}
@@ -962,6 +1029,60 @@ export default function Settings() {
                       </Text>
                     </>
                   )}
+                </View>
+              )}
+
+              {(sheetsConfig.expenseSheetName || sheetsConfig.incomeSheetName) && (
+                <View style={styles.writeTargetCard}>
+                  <View style={styles.writeTargetHeader}>
+                    <Text style={styles.writeTargetTitle}>Sheet settings</Text>
+                  </View>
+                  {[
+                    { label: 'Expense', sheetName: sheetsConfig.expenseSheetName },
+                    { label: 'Income', sheetName: sheetsConfig.incomeSheetName },
+                  ]
+                    .filter((item) => item.sheetName)
+                    .map((item) => {
+                      const sheetName = item.sheetName as string;
+                      const selectedMode = sheetsConfig.writeModeBySheet?.[sheetName] ?? 'auto';
+                      return (
+                        <View key={sheetName} style={styles.sheetSettingRow}>
+                          <View style={styles.sheetSettingInfo}>
+                            <Text style={styles.sheetSettingLabel}>{item.label} sheet</Text>
+                            <Text style={styles.sheetSettingMeta}>{sheetName}</Text>
+                            <Text style={styles.sheetSettingDetected}>
+                              Detected: {formatDetectedMode(detectedWriteModes[sheetName])}
+                            </Text>
+                          </View>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            <View style={styles.writeModeChips}>
+                              {(['auto', 'grid', 'transaction'] as SheetWriteMode[]).map((mode) => (
+                                <TouchableOpacity
+                                  key={`${sheetName}-${mode}`}
+                                  style={[
+                                    styles.writeModeChip,
+                                    selectedMode === mode && styles.writeModeChipActive,
+                                  ]}
+                                  onPress={() => setWriteMode(sheetName, mode)}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.writeModeChipText,
+                                      selectedMode === mode && styles.writeModeChipTextActive,
+                                    ]}
+                                  >
+                                    {mode === 'auto' ? 'Auto' : mode === 'grid' ? 'Grid' : 'Log'}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          </ScrollView>
+                        </View>
+                      );
+                    })}
+                  <Text style={styles.writeTargetNote}>
+                    Auto uses detection. Use Grid or Log to override write behavior.
+                  </Text>
                 </View>
               )}
 
@@ -1331,6 +1452,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 8,
   },
+  sheetHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
   googleSelectedCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1442,6 +1569,54 @@ const styles = StyleSheet.create({
   writeTargetNote: {
     color: palette.muted,
     fontSize: 11,
+  },
+  sheetSettingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+  },
+  sheetSettingInfo: {
+    flex: 1,
+  },
+  sheetSettingLabel: {
+    color: palette.muted,
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  sheetSettingMeta: {
+    color: palette.ink,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  sheetSettingDetected: {
+    color: palette.muted,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  writeModeChips: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  writeModeChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.wash,
+  },
+  writeModeChipActive: {
+    backgroundColor: palette.ink,
+    borderColor: palette.ink,
+  },
+  writeModeChipText: {
+    color: palette.ink,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  writeModeChipTextActive: {
+    color: '#fff',
   },
   importButton: {
     flexDirection: 'row',

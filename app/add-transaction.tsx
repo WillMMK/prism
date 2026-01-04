@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,8 +14,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useBudgetStore } from '../src/store/budgetStore';
 import { Transaction } from '../src/types/budget';
+import { useToastStore } from '../src/store/toastStore';
 import { googleSheetsService } from '../src/services/googleSheets';
 import { enqueuePendingTransaction } from '../src/services/transactionSync';
+import { formatCurrency } from '../src/utils/formatters';
 
 const palette = {
   background: '#F6F3EF',
@@ -40,6 +42,7 @@ const parseAmount = (raw: string) => {
 
 const buildTransaction = (
   amount: number,
+  breakdownAmounts: number[],
   type: 'income' | 'expense',
   date: string,
   category: string,
@@ -53,6 +56,7 @@ const buildTransaction = (
     category: category || 'Uncategorized',
     amount,
     signedAmount,
+    breakdownAmounts,
     type,
   };
 };
@@ -70,11 +74,14 @@ const resolveTargetSheet = (
 export default function AddTransaction() {
   const router = useRouter();
   const { transactions, addTransaction, sheetsConfig } = useBudgetStore();
+  const { showToast } = useToastStore();
   const [amount, setAmount] = useState('');
+  const [amountParts, setAmountParts] = useState<number[]>([]);
   const [type, setType] = useState<'income' | 'expense'>('expense');
   const [category, setCategory] = useState('');
   const [note, setNote] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const amountInputRef = useRef<TextInput>(null);
 
   const topCategories = useMemo(() => {
     const counts = new Map<string, number>();
@@ -96,10 +103,10 @@ export default function AddTransaction() {
   }, [category, topCategories]);
 
   const handleSave = async () => {
-    const parsedAmount = parseAmount(amount);
+    const currentAmount = parseAmount(amount);
     const finalCategory = category.trim();
 
-    if (!parsedAmount || parsedAmount <= 0) {
+    if (amountParts.length === 0 && (!currentAmount || currentAmount <= 0)) {
       Alert.alert('Amount required', 'Enter a valid amount to continue.');
       return;
     }
@@ -109,11 +116,26 @@ export default function AddTransaction() {
       return;
     }
 
-    const transaction = buildTransaction(parsedAmount, type, formatDate(date), finalCategory, note);
+    const combinedParts = [...amountParts];
+    if (currentAmount && currentAmount > 0) {
+      combinedParts.push(currentAmount);
+    }
+    const normalized = combinedParts.map(value => Math.abs(value));
+    const totalAmount = normalized.reduce((sum, value) => sum + value, 0);
+    const transaction = buildTransaction(
+      totalAmount,
+      normalized,
+      type,
+      formatDate(date),
+      finalCategory,
+      note
+    );
+    const formattedAmount = formatCurrency(totalAmount);
+    showToast({ message: `Saved: ${formattedAmount} to '${finalCategory}'`, tone: 'success' });
     addTransaction(transaction);
     router.back();
 
-    if (!sheetsConfig.isConnected || !sheetsConfig.spreadsheetId || !sheetsConfig.sheetName) {
+    if (!sheetsConfig.spreadsheetId || !sheetsConfig.sheetName) {
       Alert.alert('Saved locally', 'Connect Google Sheets to sync new transactions.');
       return;
     }
@@ -123,20 +145,46 @@ export default function AddTransaction() {
       Alert.alert('Select a write sheet', 'Pick an expense/income sheet in Settings to sync new transactions.');
       return;
     }
+    const writeMode = sheetsConfig.writeModeBySheet?.[targetSheet] ?? 'auto';
 
     void (async () => {
       try {
-        await googleSheetsService.appendTransaction(
+        const result = await googleSheetsService.appendTransaction(
           sheetsConfig.spreadsheetId,
           targetSheet,
-          transaction
+          transaction,
+          { writeMode }
         );
-        Alert.alert('Synced', `Added to ${targetSheet}`);
+        const location =
+          result.mode === 'grid' && result.cellRef
+            ? `Cell ${result.cellRef}`
+            : result.rowIndex !== undefined
+            ? `Row ${result.rowIndex + 1}`
+            : null;
+        const suffix = location ? ` (${location})` : '';
+        showToast({
+          message: `Synced: ${formattedAmount} to '${finalCategory}'${suffix}`,
+          tone: 'success',
+        });
       } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        const isValidationError = /not found|invalid|category|grid layout/i.test(message);
+        const isAuthError = /authentication expired|not authenticated|permission|insufficient/i.test(message);
+        const isNetworkError = /network|timeout|offline|failed to fetch/i.test(message);
+        const isSheetUpdateError = /failed to update cell/i.test(message);
+        if (isValidationError || isAuthError || isSheetUpdateError) {
+          Alert.alert('Cannot sync', message || 'Unable to map this transaction to the sheet.');
+          return;
+        }
+        if (!isNetworkError && message) {
+          Alert.alert('Sync error', message);
+          return;
+        }
         await enqueuePendingTransaction(
           transaction,
           sheetsConfig.spreadsheetId,
-          targetSheet
+          targetSheet,
+          writeMode
         );
         Alert.alert('Sync pending', 'We will retry this transaction when you are back online.');
       }
@@ -172,8 +220,47 @@ export default function AddTransaction() {
                 placeholderTextColor="#B4ABA0"
                 keyboardType="decimal-pad"
                 autoFocus
+                ref={amountInputRef}
               />
             </View>
+            <TouchableOpacity
+              style={styles.addAmountButton}
+              onPress={() => {
+                const parsed = parseAmount(amount);
+                if (!parsed || parsed <= 0) {
+                  Alert.alert('Amount required', 'Enter a valid amount first.');
+                  return;
+                }
+                setAmountParts(prev => [...prev, parsed]);
+                setAmount('');
+                requestAnimationFrame(() => {
+                  amountInputRef.current?.focus();
+                });
+              }}
+            >
+              <Ionicons name="add" size={16} color={palette.accent} />
+              <Text style={styles.addAmountText}>Add another amount</Text>
+            </TouchableOpacity>
+            {amountParts.length > 0 && (
+              <View style={styles.amountList}>
+                {amountParts.map((value, index) => (
+                  <View key={`${value}-${index}`} style={styles.amountChip}>
+                    <Text style={styles.amountChipText}>${value.toFixed(2)}</Text>
+                    <TouchableOpacity
+                      style={styles.amountChipRemove}
+                      onPress={() => {
+                        setAmountParts(prev => prev.filter((_, idx) => idx !== index));
+                      }}
+                    >
+                      <Ionicons name="close" size={12} color={palette.muted} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                <Text style={styles.amountTotal}>
+                  Total: ${amountParts.reduce((sum, value) => sum + value, 0).toFixed(2)}
+                </Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.typeRow}>
@@ -330,6 +417,57 @@ const styles = StyleSheet.create({
   amountRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  addAmountButton: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.wash,
+  },
+  addAmountText: {
+    color: palette.accent,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  amountList: {
+    marginTop: 12,
+    gap: 8,
+  },
+  amountChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: '#fff',
+    alignSelf: 'flex-start',
+  },
+  amountChipText: {
+    color: palette.ink,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  amountChipRemove: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.wash,
+  },
+  amountTotal: {
+    color: palette.muted,
+    fontSize: 12,
   },
   amountCurrency: {
     fontSize: 28,

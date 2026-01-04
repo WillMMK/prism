@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Transaction } from '../types/budget';
+import { Transaction, SheetWriteMode } from '../types/budget';
 import { googleSheetsService } from './googleSheets';
 
 export interface PendingTransaction {
@@ -7,6 +7,7 @@ export interface PendingTransaction {
   transaction: Transaction;
   spreadsheetId: string;
   sheetName: string;
+  writeMode?: SheetWriteMode;
   createdAt: string;
 }
 
@@ -28,7 +29,8 @@ const savePending = async (items: PendingTransaction[]): Promise<void> => {
 export const enqueuePendingTransaction = async (
   transaction: Transaction,
   spreadsheetId: string,
-  sheetName: string
+  sheetName: string,
+  writeMode?: SheetWriteMode
 ): Promise<void> => {
   const existing = await loadPending();
   const entry: PendingTransaction = {
@@ -36,6 +38,7 @@ export const enqueuePendingTransaction = async (
     transaction,
     spreadsheetId,
     sheetName,
+    writeMode,
     createdAt: new Date().toISOString(),
   };
   await savePending([entry, ...existing]);
@@ -60,7 +63,8 @@ export const flushPendingTransactions = async (): Promise<{
       await googleSheetsService.appendTransaction(
         item.spreadsheetId,
         item.sheetName,
-        item.transaction
+        item.transaction,
+        { writeMode: item.writeMode }
       );
       processed += 1;
     } catch {

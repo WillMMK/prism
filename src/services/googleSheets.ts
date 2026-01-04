@@ -56,6 +56,15 @@ export interface ColumnMapping {
   headers: string[];
 }
 
+export type WriteMode = 'auto' | 'grid' | 'transaction';
+
+export interface WriteResult {
+  mode: 'grid' | 'transaction';
+  cellRef?: string;
+  rowIndex?: number;
+  range?: string;
+}
+
 export interface InferredSchema {
   sheets: SheetInfo[];
   columns: ColumnMapping;
@@ -348,11 +357,348 @@ export class GoogleSheetsService {
     };
   }
 
-  async appendTransaction(
+  private columnIndexToLetter(index: number): string {
+    let result = '';
+    let column = index + 1;
+    while (column > 0) {
+      const mod = (column - 1) % 26;
+      result = String.fromCharCode(65 + mod) + result;
+      column = Math.floor((column - 1) / 26);
+    }
+    return result;
+  }
+
+  private parseRowFromRange(range?: string): number | undefined {
+    if (!range) return undefined;
+    const match = range.match(/!([A-Z]+)(\d+)(?::[A-Z]+(\d+))?/i);
+    if (!match) return undefined;
+    const row = parseInt(match[2], 10);
+    if (isNaN(row)) return undefined;
+    return Math.max(0, row - 1);
+  }
+
+  private parseAmountValue(value: string): number {
+    if (!value) return 0;
+    const cleaned = String(value).replace(/[$,£€\s]/g, '').trim();
+    if (!cleaned) return 0;
+    if (cleaned.startsWith('(') && cleaned.endsWith(')')) {
+      return -Math.abs(parseFloat(cleaned.slice(1, -1)) || 0);
+    }
+    return parseFloat(cleaned) || 0;
+  }
+
+  private formatDateKey(year: number, monthIndex: number, day: number): string {
+    const yyyy = String(year).padStart(4, '0');
+    const mm = String(monthIndex + 1).padStart(2, '0');
+    const dd = String(day).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  private isMonthToken(value: string): number | null {
+    const token = value.toLowerCase().trim();
+    const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec'];
+    const index = months.indexOf(token);
+    if (index >= 0) return index;
+    return null;
+  }
+
+  private parseYearMonthToken(value: string): number | null {
+    const match = value.trim().match(/^(\d{4})[\/\-](\d{1,2})$/);
+    if (!match) return null;
+    const month = parseInt(match[2], 10);
+    if (isNaN(month) || month < 1 || month > 12) return null;
+    return month - 1;
+  }
+
+  private parseGridDate(
+    value: string,
+    currentMonth: number | null,
+    year: number,
+    preferDayFirst: boolean
+  ): string | null {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const monthIndex = this.isMonthToken(trimmed);
+    if (monthIndex !== null) return null;
+
+    if (/^\d{4}[\/\-]\d{1,2}$/.test(trimmed)) {
+      return null;
+    }
+
+    const serial = parseFloat(trimmed);
+    if (!isNaN(serial) && serial > 30000 && serial < 100000) {
+      const epoch = new Date(Date.UTC(1899, 11, 30));
+      const date = new Date(epoch.getTime() + serial * 86400000);
+      return this.formatDateKey(
+        date.getUTCFullYear(),
+        date.getUTCMonth(),
+        date.getUTCDate()
+      );
+    }
+
+    const parts = trimmed.split(/[\/\-]/).map(p => p.trim());
+    if (parts.length >= 2) {
+      const first = parseInt(parts[0], 10);
+      const second = parseInt(parts[1], 10);
+      const third = parts.length >= 3 ? parseInt(parts[2], 10) : year;
+      if (isNaN(first) || isNaN(second)) return null;
+
+      let month = 0;
+      let day = 0;
+      if (first > 12) {
+        day = first;
+        month = second;
+      } else if (second > 12) {
+        month = first;
+        day = second;
+      } else if (preferDayFirst) {
+        day = first;
+        month = second;
+      } else {
+        month = first;
+        day = second;
+      }
+
+      const fullYear = third < 100 ? 2000 + third : third;
+      if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+        return this.formatDateKey(fullYear, month - 1, day);
+      }
+    }
+
+    if (currentMonth !== null) {
+      const day = parseInt(trimmed, 10);
+      if (!isNaN(day) && day >= 1 && day <= 31) {
+        return this.formatDateKey(year, currentMonth, day);
+      }
+    }
+
+    return null;
+  }
+
+  private detectGridLayout(data: string[][]): {
+    categoryColumns: Map<string, number>;
+    monthRows: Map<number, number>;
+  } | null {
+    if (!data || data.length < 4) return null;
+    const headerRowIndex = this.findGridHeaderRowIndex(data);
+    const header = (data[headerRowIndex] || []).map(cell => String(cell ?? '').trim());
+
+    const scanRows = data.slice(headerRowIndex + 1, headerRowIndex + 40);
+    const monthRowCount = scanRows.filter((row) => {
+      const label = String(row[0] ?? '').trim();
+      return this.isMonthToken(label) !== null || this.parseYearMonthToken(label) !== null;
+    }).length;
+    const dateRowCount = scanRows.filter((row) => {
+      const label = String(row[0] ?? '').trim();
+      return this.looksLikeDateValue(label);
+    }).length;
+
+    const hasDateHeader = header.slice(1).some(h => h.toLowerCase().includes('date'));
+    if (hasDateHeader && monthRowCount < 3 && dateRowCount < 5) return null;
+    if (monthRowCount < 3 && dateRowCount < 5) return null;
+
+    const aggregateNames = new Set(['expense', 'expenses', 'income', 'net', 'net profit', 'total', 'balance', 'sum']);
+    const categoryColumns = new Map<string, number>();
+    header.forEach((name, index) => {
+      const trimmed = name.trim();
+      if (index === 0 || !trimmed) return;
+      const lower = trimmed.toLowerCase();
+      if (aggregateNames.has(lower)) return;
+      categoryColumns.set(lower, index);
+    });
+    if (categoryColumns.size === 0) return null;
+
+    const monthRows = new Map<number, number>();
+
+    data.forEach((row, rowIndex) => {
+      if (rowIndex === headerRowIndex) return;
+      const label = String(row[0] ?? '').trim();
+      if (!label) return;
+      const monthIndex = this.isMonthToken(label) ?? this.parseYearMonthToken(label);
+      if (monthIndex !== null) {
+        monthRows.set(monthIndex, rowIndex);
+      }
+    });
+
+    return { categoryColumns, monthRows };
+  }
+
+  private findGridHeaderRowIndex(data: string[][]): number {
+    let bestIndex = 0;
+    let bestScore = -1;
+
+    for (let i = 0; i < Math.min(5, data.length); i += 1) {
+      const row = data[i] || [];
+      const metrics = this.getRowMetrics(row);
+      if (metrics.nonEmpty === 0) continue;
+      const score = metrics.textCount - metrics.numericCount;
+      if (metrics.textCount >= 2 && score > bestScore) {
+        bestScore = score;
+        bestIndex = i;
+      }
+    }
+
+    return bestIndex;
+  }
+
+  private detectDayFirstInGrid(data: string[][]): boolean {
+    const candidates = data.slice(1, 60).map(row => String(row[0] ?? '').trim());
+    const dayFirstMatches = candidates.filter(value =>
+      /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(value)
+    ).length;
+    if (dayFirstMatches === 0) return false;
+    const ambiguousMatches = candidates.filter(value =>
+      /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(value)
+    ).length;
+    return dayFirstMatches >= Math.max(1, Math.floor(ambiguousMatches * 0.6));
+  }
+
+  async detectWriteMode(
+    spreadsheetId: string,
+    sheetName: string
+  ): Promise<'grid' | 'transaction'> {
+    const gridData = await this.fetchSheetData(spreadsheetId, sheetName, 'A1:Z200', {
+      valueRenderOption: 'FORMULA',
+    });
+    const layout = this.detectGridLayout(gridData);
+    return layout ? 'grid' : 'transaction';
+  }
+
+  private async updateGridCell(
     spreadsheetId: string,
     sheetName: string,
     transaction: Transaction
-  ): Promise<void> {
+  ): Promise<{ cellRef: string; rowIndex: number } | null> {
+    const gridData = await this.fetchSheetData(spreadsheetId, sheetName, 'A1:Z500', {
+      valueRenderOption: 'FORMULA',
+    });
+    const layout = this.detectGridLayout(gridData);
+    if (!layout) return null;
+
+    const preferDayFirst = this.detectDayFirstInGrid(gridData);
+    const categoryKey = transaction.category.toLowerCase().trim();
+    const colIndex = layout.categoryColumns.get(categoryKey);
+    if (colIndex === undefined) {
+      throw new Error(`Category "${transaction.category}" not found in ${sheetName}.`);
+    }
+
+    const txDate = new Date(transaction.date);
+    if (isNaN(txDate.getTime())) {
+      throw new Error('Invalid transaction date.');
+    }
+    const dateParts = transaction.date.split('-').map(part => parseInt(part, 10));
+    const [txYear, txMonth, txDay] = dateParts.length >= 3 ? dateParts : [
+      txDate.getFullYear(),
+      txDate.getMonth() + 1,
+      txDate.getDate(),
+    ];
+    const monthIndex = txMonth - 1;
+    let rowIndex: number | undefined;
+
+    if (transaction.type === 'income') {
+      rowIndex = layout.monthRows.get(monthIndex);
+      if (rowIndex === undefined) {
+        throw new Error(`Month row not found in ${sheetName}.`);
+      }
+    } else {
+      let currentMonth: number | null = null;
+      const targetDate = this.formatDateKey(txYear, monthIndex, txDay);
+      for (let i = 1; i < gridData.length; i += 1) {
+        const label = String(gridData[i]?.[0] ?? '').trim();
+        if (!label) continue;
+        const monthToken = this.isMonthToken(label);
+        if (monthToken !== null) {
+          currentMonth = monthToken;
+          continue;
+        }
+        const dateKey = this.parseGridDate(label, currentMonth, txDate.getFullYear(), preferDayFirst);
+        if (dateKey === targetDate) {
+          rowIndex = i;
+          break;
+        }
+      }
+
+      if (rowIndex === undefined) {
+        throw new Error(`Date row not found in ${sheetName}.`);
+      }
+    }
+
+    const currentRaw = String(gridData[rowIndex]?.[colIndex] ?? '').trim();
+    const signedAmount =
+      typeof transaction.signedAmount === 'number'
+        ? transaction.signedAmount
+        : transaction.type === 'income'
+        ? transaction.amount
+        : -transaction.amount;
+    const op = transaction.type === 'income' ? '+' : '-';
+    const breakdown = transaction.breakdownAmounts?.length
+      ? transaction.breakdownAmounts
+      : [Math.abs(signedAmount)];
+    let nextValue: string | number;
+
+    if (currentRaw.startsWith('=')) {
+      nextValue = breakdown.reduce(
+        (formula, value) => `${formula}${op}${Math.abs(value)}`,
+        currentRaw
+      );
+    } else if (!currentRaw) {
+      nextValue = breakdown.reduce(
+        (formula, value) => `${formula}${op}${Math.abs(value)}`,
+        '='
+      );
+    } else {
+      const currentValue = this.parseAmountValue(currentRaw);
+      nextValue = breakdown.reduce(
+        (formula, value) => `${formula}${op}${Math.abs(value)}`,
+        `=${currentValue}`
+      );
+    }
+    const cellRef = `${this.columnIndexToLetter(colIndex)}${rowIndex + 1}`;
+    const range = `'${sheetName}'!${cellRef}`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?` +
+      new URLSearchParams({
+        valueInputOption: 'USER_ENTERED',
+      }).toString();
+    const token = await this.getToken();
+
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ values: [[nextValue]] }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        await this.clearToken();
+        throw new Error('Authentication expired. Please sign in again.');
+      }
+      const text = await response.text();
+      throw new Error(`Failed to update cell: ${text || response.statusText}`);
+    }
+
+    return { cellRef, rowIndex };
+  }
+
+  async appendTransaction(
+    spreadsheetId: string,
+    sheetName: string,
+    transaction: Transaction,
+    options?: { writeMode?: WriteMode }
+  ): Promise<WriteResult> {
+    const writeMode = options?.writeMode ?? 'auto';
+    if (writeMode !== 'transaction') {
+      const updated = await this.updateGridCell(spreadsheetId, sheetName, transaction);
+      if (updated) {
+        return { mode: 'grid', cellRef: updated.cellRef, rowIndex: updated.rowIndex };
+      }
+      if (writeMode === 'grid') {
+        throw new Error('Grid layout not detected for this sheet.');
+      }
+    }
+
     const token = await this.getToken();
     const { mapping, columnCount, formulaColumns } = await this.getWriteSchema(spreadsheetId, sheetName);
 
@@ -385,6 +731,11 @@ export class GoogleSheetsService {
       const text = await response.text();
       throw new Error(`Failed to append row: ${text || response.statusText}`);
     }
+    const data = await response.json().catch(() => null);
+    const updatedRange = data?.updates?.updatedRange || data?.updatedRange;
+    const rowIndex = this.parseRowFromRange(updatedRange);
+
+    return { mode: 'transaction', range: updatedRange, rowIndex };
   }
 
   // Infer schema from sheet data
@@ -526,16 +877,17 @@ export class GoogleSheetsService {
       /^[A-Za-z]{3}\s+\d{1,2}/, // Jan 15
     ];
 
-    const matchCount = values.filter(v =>
-      v && datePatterns.some(pattern => pattern.test(v.trim()))
-    ).length;
+    const matchCount = values.filter((v) => {
+      const value = String(v ?? '').trim();
+      return value && datePatterns.some(pattern => pattern.test(value));
+    }).length;
 
     return matchCount >= values.length * 0.5;
   }
 
   private looksLikeAmount(values: string[]): boolean {
-    const matchCount = values.filter(v => {
-      const cleaned = v.replace(/[$,£€\s]/g, '').trim();
+    const matchCount = values.filter((v) => {
+      const cleaned = String(v ?? '').replace(/[$,£€\s]/g, '').trim();
       return cleaned && !isNaN(parseFloat(cleaned));
     }).length;
 
@@ -543,9 +895,10 @@ export class GoogleSheetsService {
   }
 
   private looksLikeText(values: string[]): boolean {
-    const textCount = values.filter(v =>
-      v && v.trim().length > 2 && !/^[\d.,\-$€£%()]+$/.test(v.trim())
-    ).length;
+    const textCount = values.filter((v) => {
+      const value = String(v ?? '').trim();
+      return value && value.length > 2 && !/^[\d.,\-$€£%()]+$/.test(value);
+    }).length;
 
     return textCount >= values.length * 0.4;
   }

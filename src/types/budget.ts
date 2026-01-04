@@ -5,8 +5,11 @@ export interface Transaction {
   category: string;
   amount: number;
   signedAmount?: number;
+  breakdownAmounts?: number[];
   type: 'income' | 'expense';
 }
+
+export type SheetWriteMode = 'auto' | 'grid' | 'transaction';
 
 export interface Category {
   id: string;
@@ -46,6 +49,7 @@ export interface GoogleSheetsConfig {
   lastSync?: string;
   selectedTabs?: string[];
   lastKnownTabs?: string[];
+  writeModeBySheet?: Record<string, SheetWriteMode>;
 }
 
 export interface DemoConfig {
