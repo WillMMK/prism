@@ -134,18 +134,24 @@ export class GoogleSheetsService {
   }
 
   private async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; expiresIn?: number }> {
+    const clientId = this.getClientIdForPlatform();
+
+    // URLSearchParams doesn't serialize correctly on React Native, use manual form encoding
+    const formBody = [
+      `client_id=${encodeURIComponent(clientId)}`,
+      `grant_type=refresh_token`,
+      `refresh_token=${encodeURIComponent(refreshToken)}`,
+    ].join('&');
+
     const response = await fetch(discovery.tokenEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: this.getClientIdForPlatform(),
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-      }),
+      body: formBody,
     });
 
     if (!response.ok) {
-      throw new Error('Failed to refresh access token.');
+      const errorData = await response.json().catch(() => ({ error: 'unknown', error_description: response.statusText }));
+      throw new Error(`Token refresh failed: ${errorData.error_description || errorData.error || 'Unknown error'}`);
     }
 
     const data = await response.json();
@@ -304,8 +310,8 @@ export class GoogleSheetsService {
       typeof transaction.signedAmount === 'number'
         ? transaction.signedAmount
         : transaction.type === 'income'
-        ? transaction.amount
-        : -transaction.amount;
+          ? transaction.amount
+          : -transaction.amount;
 
     const safeSet = (index: number | null, value: string | number) => {
       if (index === null || index < 0) return;
@@ -631,8 +637,8 @@ export class GoogleSheetsService {
       typeof transaction.signedAmount === 'number'
         ? transaction.signedAmount
         : transaction.type === 'income'
-        ? transaction.amount
-        : -transaction.amount;
+          ? transaction.amount
+          : -transaction.amount;
     const op = transaction.type === 'income' ? '+' : '-';
     const breakdown = transaction.breakdownAmounts?.length
       ? transaction.breakdownAmounts
