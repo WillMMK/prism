@@ -17,6 +17,7 @@ import { xlsxParser, SheetData, ColumnMapping, ParsedFile, SummaryMapping, Mixed
 import { useBudgetStore } from '../../src/store/budgetStore';
 import { SheetWriteMode } from '../../src/types/budget';
 import { googleSheetsService, GOOGLE_AUTH_CONFIG, SpreadsheetFile, SheetInfo } from '../../src/services/googleSheets';
+import { useLoadingOverlay } from '../../src/store/loadingOverlayStore';
 
 const palette = {
   background: '#F6F3EF',
@@ -59,6 +60,7 @@ export default function Settings() {
     demoConfig,
     setDemoConfig,
   } = useBudgetStore();
+  const { show: showLoadingOverlay, hide: hideLoadingOverlay } = useLoadingOverlay();
   const iosRedirectUri =
     'com.googleusercontent.apps.907648461438-lttve08jch0tc7639k16hill7smkbqur:/oauthredirect';
   const redirectUri = Platform.select({
@@ -293,6 +295,7 @@ export default function Settings() {
     }
 
     setIsGoogleLoading(true);
+    showLoadingOverlay('Importing from Google Sheets...');
     try {
       const importedTransactions = await googleSheetsService.importAllSheets(
         selectedSpreadsheet.id,
@@ -331,6 +334,7 @@ export default function Settings() {
       Alert.alert('Google Sheets', error.message || 'Failed to import data.');
     } finally {
       setIsGoogleLoading(false);
+      hideLoadingOverlay();
     }
   };
 
@@ -358,6 +362,7 @@ export default function Settings() {
     }
 
     setIsGoogleLoading(true);
+    showLoadingOverlay('Syncing...');
     try {
       const availableSheets = await googleSheetsService.getSpreadsheetInfo(sheetsConfig.spreadsheetId);
       const availableTitles = availableSheets.map((sheet) => sheet.title);
@@ -391,11 +396,16 @@ export default function Settings() {
       };
 
       if (newTabs.length > 0) {
+        hideLoadingOverlay();
         Alert.alert(
           'New tabs detected',
           `New tabs found: ${newTabs.slice(0, 5).join(', ')}${newTabs.length > 5 ? '...' : ''}`,
           [
-            { text: 'Sync existing', onPress: () => doSync() },
+            { text: 'Sync existing', onPress: async () => {
+              showLoadingOverlay('Syncing...');
+              await doSync();
+              hideLoadingOverlay();
+            }},
             { text: 'Review tabs', onPress: () => {
               setSelectedSpreadsheet({
                 id: sheetsConfig.spreadsheetId,
@@ -414,9 +424,11 @@ export default function Settings() {
         );
       } else {
         await doSync();
+        hideLoadingOverlay();
       }
     } catch (error: any) {
       Alert.alert('Google Sheets', error.message || 'Failed to sync data.');
+      hideLoadingOverlay();
     } finally {
       setIsGoogleLoading(false);
     }
@@ -536,6 +548,7 @@ export default function Settings() {
     }
 
     setIsLoading(true);
+    showLoadingOverlay('Importing...');
     try {
       const importedTransactions = xlsxParser.parseAllSheets(parsedFile, selectedSheets);
       setTransactions(importedTransactions, {
@@ -557,6 +570,7 @@ export default function Settings() {
       Alert.alert('Error', error.message || 'Failed to import data');
     } finally {
       setIsLoading(false);
+      hideLoadingOverlay();
     }
   };
 
@@ -1091,17 +1105,11 @@ export default function Settings() {
                 onPress={handleGoogleImport}
                 disabled={isGoogleLoading || selectedGoogleSheets.length === 0}
               >
-                {isGoogleLoading ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="download" size={20} color="#fff" />
-                    <Text style={styles.buttonText}>
-                      Import {selectedGoogleSheets.length} Sheet
-                      {selectedGoogleSheets.length !== 1 ? 's' : ''}
-                    </Text>
-                  </>
-                )}
+                <Ionicons name="download" size={20} color="#fff" />
+                <Text style={styles.buttonText}>
+                  Import {selectedGoogleSheets.length} Sheet
+                  {selectedGoogleSheets.length !== 1 ? 's' : ''}
+                </Text>
               </TouchableOpacity>
             </View>
           )}
@@ -1137,16 +1145,10 @@ export default function Settings() {
               onPress={handleImport}
               disabled={isLoading || selectedSheets.length === 0}
             >
-              {isLoading ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <>
-                  <Ionicons name="download" size={20} color="#fff" />
-                  <Text style={styles.buttonText}>
-                    Import {selectedSheets.length} Sheet{selectedSheets.length !== 1 ? 's' : ''}
-                  </Text>
-                </>
-              )}
+              <Ionicons name="download" size={20} color="#fff" />
+              <Text style={styles.buttonText}>
+                Import {selectedSheets.length} Sheet{selectedSheets.length !== 1 ? 's' : ''}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

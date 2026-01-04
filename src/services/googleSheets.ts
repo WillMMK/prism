@@ -173,9 +173,27 @@ export class GoogleSheetsService {
     return token;
   }
 
+  private async requestWithAuth(url: string, init: RequestInit = {}): Promise<Response> {
+    const token = await this.getToken();
+    const headers = new Headers(init.headers);
+    headers.set('Authorization', `Bearer ${token}`);
+    const response = await fetch(url, { ...init, headers });
+    if (response.status !== 401) return response;
+
+    const stored = await this.getStoredToken();
+    if (!stored?.refreshToken) {
+      return response;
+    }
+
+    const refreshed = await this.refreshAccessToken(stored.refreshToken);
+    await this.storeToken(refreshed.accessToken, stored.refreshToken, refreshed.expiresIn);
+    const retryHeaders = new Headers(init.headers);
+    retryHeaders.set('Authorization', `Bearer ${refreshed.accessToken}`);
+    return fetch(url, { ...init, headers: retryHeaders });
+  }
+
   // List all spreadsheets from Google Drive
   async listSpreadsheets(query?: string): Promise<SpreadsheetFile[]> {
-    const token = await this.getToken();
     const escapedQuery = (query || '').replace(/'/g, "\\'");
     const q = escapedQuery
       ? `mimeType='application/vnd.google-apps.spreadsheet' and name contains '${escapedQuery}'`
@@ -187,13 +205,10 @@ export class GoogleSheetsService {
       pageSize: '50',
     });
 
-    const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const response = await this.requestWithAuth(url);
 
     if (!response.ok) {
       if (response.status === 401) {
-        await this.clearToken();
         throw new Error('Authentication expired. Please sign in again.');
       }
       throw new Error(`Failed to list spreadsheets: ${response.statusText}`);
@@ -205,16 +220,12 @@ export class GoogleSheetsService {
 
   // Get all sheets in a spreadsheet
   async getSpreadsheetInfo(spreadsheetId: string): Promise<SheetInfo[]> {
-    const token = await this.getToken();
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`;
 
-    const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const response = await this.requestWithAuth(url);
 
     if (!response.ok) {
       if (response.status === 401) {
-        await this.clearToken();
         throw new Error('Authentication expired. Please sign in again.');
       }
       throw new Error(`Failed to fetch spreadsheet: ${response.statusText}`);
@@ -230,16 +241,12 @@ export class GoogleSheetsService {
   }
 
   async getSpreadsheetMetadata(spreadsheetId: string): Promise<SpreadsheetMetadata> {
-    const token = await this.getToken();
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=properties.title,sheets.properties`;
 
-    const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const response = await this.requestWithAuth(url);
 
     if (!response.ok) {
       if (response.status === 401) {
-        await this.clearToken();
         throw new Error('Authentication expired. Please sign in again.');
       }
       throw new Error(`Failed to fetch spreadsheet: ${response.statusText}`);
@@ -266,7 +273,6 @@ export class GoogleSheetsService {
     range?: string,
     options?: { valueRenderOption?: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE' | 'FORMULA' }
   ): Promise<string[][]> {
-    const token = await this.getToken();
     const fullRange = range ? `'${sheetName}'!${range}` : `'${sheetName}'`;
     const query = new URLSearchParams();
     if (options?.valueRenderOption) {
@@ -274,13 +280,10 @@ export class GoogleSheetsService {
     }
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(fullRange)}${query.toString() ? `?${query.toString()}` : ''}`;
 
-    const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const response = await this.requestWithAuth(url);
 
     if (!response.ok) {
       if (response.status === 401) {
-        await this.clearToken();
         throw new Error('Authentication expired. Please sign in again.');
       }
       throw new Error(`Failed to fetch data: ${response.statusText}`);
@@ -659,12 +662,9 @@ export class GoogleSheetsService {
       new URLSearchParams({
         valueInputOption: 'USER_ENTERED',
       }).toString();
-    const token = await this.getToken();
-
-    const response = await fetch(url, {
+    const response = await this.requestWithAuth(url, {
       method: 'PUT',
       headers: {
-        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ values: [[nextValue]] }),
@@ -672,7 +672,6 @@ export class GoogleSheetsService {
 
     if (!response.ok) {
       if (response.status === 401) {
-        await this.clearToken();
         throw new Error('Authentication expired. Please sign in again.');
       }
       const text = await response.text();
@@ -699,7 +698,6 @@ export class GoogleSheetsService {
       }
     }
 
-    const token = await this.getToken();
     const { mapping, columnCount, formulaColumns } = await this.getWriteSchema(spreadsheetId, sheetName);
 
     if (mapping.amountColumn === null && mapping.dateColumn === null && mapping.descriptionColumn === null) {
@@ -714,10 +712,9 @@ export class GoogleSheetsService {
         insertDataOption: 'INSERT_ROWS',
       }).toString();
 
-    const response = await fetch(url, {
+    const response = await this.requestWithAuth(url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ values: [row] }),
@@ -725,7 +722,6 @@ export class GoogleSheetsService {
 
     if (!response.ok) {
       if (response.status === 401) {
-        await this.clearToken();
         throw new Error('Authentication expired. Please sign in again.');
       }
       const text = await response.text();
