@@ -18,6 +18,10 @@ import { useBudgetStore } from '../../src/store/budgetStore';
 import { SheetWriteMode } from '../../src/types/budget';
 import { googleSheetsService, GOOGLE_AUTH_CONFIG, SpreadsheetFile, SheetInfo } from '../../src/services/googleSheets';
 import { useLoadingOverlay } from '../../src/store/loadingOverlayStore';
+import { usePremiumStore } from '../../src/store/premiumStore';
+import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
+import { useAutoSync } from '../../src/hooks/useAutoSync';
+import { useToastStore } from '../../src/store/toastStore';
 
 const palette = {
   background: '#F6F3EF',
@@ -61,6 +65,22 @@ export default function Settings() {
     setDemoConfig,
   } = useBudgetStore();
   const { show: showLoadingOverlay, hide: hideLoadingOverlay } = useLoadingOverlay();
+  const { showToast } = useToastStore();
+  const { isPremium } = usePremiumStore();
+  const { syncNow, syncStatus, lastSyncTime, pendingCount, isConnected } = useAutoSync({
+    onExternalUpdate: () => {
+      showToast({ message: 'Sheet updated externally', tone: 'info' });
+    },
+    onSyncResult: ({ totalCount, newCount, isFirstSync }) => {
+      if (isFirstSync) {
+        showToast({ message: `Synced ${totalCount} transactions`, tone: 'success' });
+      } else if (newCount > 0) {
+        showToast({ message: `Synced ${newCount} new transaction${newCount > 1 ? 's' : ''}`, tone: 'success' });
+      } else {
+        showToast({ message: 'Up to date', tone: 'success' });
+      }
+    },
+  });
   const iosRedirectUri =
     'com.googleusercontent.apps.907648461438-lttve08jch0tc7639k16hill7smkbqur:/oauthredirect';
   const redirectUri = Platform.select({
@@ -401,24 +421,28 @@ export default function Settings() {
           'New tabs detected',
           `New tabs found: ${newTabs.slice(0, 5).join(', ')}${newTabs.length > 5 ? '...' : ''}`,
           [
-            { text: 'Sync existing', onPress: async () => {
-              showLoadingOverlay('Syncing...');
-              await doSync();
-              hideLoadingOverlay();
-            }},
-            { text: 'Review tabs', onPress: () => {
-              setSelectedSpreadsheet({
-                id: sheetsConfig.spreadsheetId,
-                name: selectedSpreadsheet?.name || 'Google Sheets',
-                modifiedTime: new Date().toISOString(),
-              });
-              setGoogleSheets(availableSheets);
-              setSelectedGoogleSheets(sheetsConfig.selectedTabs || []);
-              setSheetsConfig({
-                ...sheetsConfig,
-                lastKnownTabs: availableTitles,
-              });
-            }},
+            {
+              text: 'Sync existing', onPress: async () => {
+                showLoadingOverlay('Syncing...');
+                await doSync();
+                hideLoadingOverlay();
+              }
+            },
+            {
+              text: 'Review tabs', onPress: () => {
+                setSelectedSpreadsheet({
+                  id: sheetsConfig.spreadsheetId,
+                  name: selectedSpreadsheet?.name || 'Google Sheets',
+                  modifiedTime: new Date().toISOString(),
+                });
+                setGoogleSheets(availableSheets);
+                setSelectedGoogleSheets(sheetsConfig.selectedTabs || []);
+                setSheetsConfig({
+                  ...sheetsConfig,
+                  lastKnownTabs: availableTitles,
+                });
+              }
+            },
             { text: 'Cancel', style: 'cancel' },
           ]
         );
@@ -611,11 +635,11 @@ export default function Settings() {
     return (
       <View style={styles.card}>
         <View style={styles.formatBadge}>
-        <Ionicons name="git-branch" size={16} color={palette.highlight} />
+          <Ionicons name="git-branch" size={16} color={palette.highlight} />
           <Text style={styles.formatText}>
             {willImportSummaries ? 'Monthly Summary Sheet' :
-             analysis.sheetType === 'expense' ? 'Expense Sheet' :
-             analysis.sheetType === 'income' ? 'Income Sheet' : 'Mixed Sheet'}
+              analysis.sheetType === 'expense' ? 'Expense Sheet' :
+                analysis.sheetType === 'income' ? 'Income Sheet' : 'Mixed Sheet'}
           </Text>
         </View>
 
@@ -857,23 +881,24 @@ export default function Settings() {
           ) : (
             <View style={styles.googleActions}>
               <TouchableOpacity
-                style={[
-                  styles.secondaryButton,
-                  (isGoogleLoading || !sheetsConfig.isConnected) && styles.secondaryButtonDisabled,
-                ]}
-                onPress={handleGoogleSync}
-                disabled={isGoogleLoading || !sheetsConfig.isConnected}
-              >
-                <Ionicons name="sync" size={16} color={palette.accent} />
-                <Text style={styles.secondaryButtonText}>Sync</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
                 style={styles.secondaryButton}
                 onPress={handleGoogleDisconnect}
               >
                 <Ionicons name="log-out-outline" size={16} color={palette.accent} />
                 <Text style={styles.secondaryButtonText}>Disconnect</Text>
               </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Sync Status Indicator - shown when connected and premium */}
+          {googleConnected && sheetsConfig.isConnected && isPremium && (
+            <View style={{ marginTop: 16 }}>
+              <SyncStatusIndicator
+                status={syncStatus}
+                lastSyncTime={lastSyncTime}
+                pendingCount={pendingCount}
+                onPress={() => syncNow(true)}
+              />
             </View>
           )}
 
@@ -1160,8 +1185,8 @@ export default function Settings() {
           {parsedFile.detectedFormat === 'mixed' && parsedFile.mixedAnalysis
             ? renderMixedSchema(parsedFile.mixedAnalysis)
             : parsedFile.detectedFormat === 'summary' && parsedFile.summaryMapping
-            ? renderSummarySchema(parsedFile.summaryMapping)
-            : renderTransactionSchema(parsedFile.inferredMapping)}
+              ? renderSummarySchema(parsedFile.summaryMapping)
+              : renderTransactionSchema(parsedFile.inferredMapping)}
         </View>
       )}
 

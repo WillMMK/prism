@@ -272,6 +272,50 @@ export class GoogleSheetsService {
     };
   }
 
+  /**
+   * Parse a formula string like "=-25-50+10" into component numbers [-25, -50, 10]
+   */
+  parseFormulaBreakdown(formula: string): number[] | null {
+    if (!formula || typeof formula !== 'string') return null;
+
+    // Only parse if it looks like a formula (starts with =)
+    if (!formula.startsWith('=')) return null;
+
+    // Remove the leading = and any spaces
+    const expr = formula.substring(1).replace(/\s/g, '');
+
+    // Match numbers with their signs (handles =-25-50+10)
+    // This regex matches: optional sign at start, then number, then (sign + number) groups
+    const matches = expr.match(/^(-?\d+\.?\d*)([-+]\d+\.?\d*)*$/);
+    if (!matches) return null;
+
+    // Split by keeping the sign with the number
+    const parts = expr.match(/-?\d+\.?\d*/g);
+    if (!parts || parts.length <= 1) return null;
+
+    return parts.map(p => parseFloat(p));
+  }
+
+  /**
+   * Fetch sheet data with both values and formulas
+   * Returns an object with values array and formulas array
+   */
+  async fetchSheetDataWithFormulas(
+    spreadsheetId: string,
+    sheetName: string,
+    range?: string
+  ): Promise<{ values: string[][]; formulas: string[][] }> {
+    // Fetch values
+    const values = await this.fetchSheetData(spreadsheetId, sheetName, range);
+
+    // Fetch formulas
+    const formulas = await this.fetchSheetData(spreadsheetId, sheetName, range, {
+      valueRenderOption: 'FORMULA',
+    });
+
+    return { values, formulas };
+  }
+
   // Fetch data from a specific sheet
   async fetchSheetData(
     spreadsheetId: string,
@@ -1019,19 +1063,51 @@ export class GoogleSheetsService {
     };
   }
 
-  // Import all data from multiple sheets
+  // Get the last modified time of a spreadsheet from Google Drive
+  async getSpreadsheetModifiedTime(spreadsheetId: string): Promise<string | null> {
+    const url = `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?fields=modifiedTime`;
+
+    const response = await this.requestWithAuth(url);
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Authentication expired. Please sign in again.');
+      }
+      return null;
+    }
+
+    const data = await response.json();
+    return data.modifiedTime || null;
+  }
+
+  // Check if spreadsheet has updates since last sync
+  async checkForUpdates(spreadsheetId: string, lastSyncTime: string | null): Promise<boolean> {
+    if (!lastSyncTime) return true; // Always sync if never synced
+
+    const modifiedTime = await this.getSpreadsheetModifiedTime(spreadsheetId);
+    if (!modifiedTime) return false; // Can't determine, skip sync
+
+    const lastSync = new Date(lastSyncTime).getTime();
+    const lastModified = new Date(modifiedTime).getTime();
+
+    return lastModified > lastSync;
+  }
+
+  // Import all data from multiple sheets with formula breakdowns
   async importAllSheets(
     spreadsheetId: string,
     sheetNames: string[]
   ): Promise<Transaction[]> {
     const sheets: SheetData[] = [];
+    const formulasBySheet: Map<string, string[][]> = new Map();
 
     for (const sheetName of sheetNames) {
       try {
-        const data = await this.fetchSheetData(spreadsheetId, sheetName);
-        const sheetData = this.normalizeSheetData(sheetName, data);
+        const { values, formulas } = await this.fetchSheetDataWithFormulas(spreadsheetId, sheetName);
+        const sheetData = this.normalizeSheetData(sheetName, values);
         if (sheetData) {
           sheets.push(sheetData);
+          formulasBySheet.set(sheetName, formulas);
         }
       } catch (error) {
         console.warn(`Failed to import sheet ${sheetName}:`, error);
@@ -1054,7 +1130,55 @@ export class GoogleSheetsService {
       detectedFormat: 'transaction',
     };
 
-    return xlsxParser.parseAllSheets(parsedFile, sheetNames);
+    const transactions = xlsxParser.parseAllSheets(parsedFile, sheetNames);
+
+    // Post-process: add formula breakdowns to transactions (only for grid format)
+    for (const tx of transactions) {
+      // Parse row and column index from transaction ID - match last two number groups before timestamp
+      // Looking for patterns: xlsx_[anything]_{row}_{col}_{timestamp}
+      const idParts = tx.id.split('_');
+      let rowIdx: number | null = null;
+      let colIdx: number | null = null;
+
+      // Find two consecutive numeric parts (row and col) before the timestamp
+      for (let i = 1; i < idParts.length - 2; i++) {
+        const maybeRow = parseInt(idParts[i], 10);
+        const maybeCol = parseInt(idParts[i + 1], 10);
+        if (!isNaN(maybeRow) && !isNaN(maybeCol)) {
+          rowIdx = maybeRow;
+          colIdx = maybeCol;
+          break;
+        }
+      }
+
+      if (rowIdx === null || colIdx === null) continue;
+
+      // Find the sheet this transaction belongs to (by category column header)
+      for (const sheet of sheets) {
+        const formulas = formulasBySheet.get(sheet.name);
+        if (!formulas) continue;
+
+        // Check if this sheet has the category column
+        const headers = sheet.headers;
+        if (headers[colIdx] !== tx.category) continue;
+
+        // Get the formula at this cell
+        const formulaRow = formulas[rowIdx + 1]; // +1 because row 0 is headers
+        if (!formulaRow) continue;
+
+        const cellFormula = formulaRow[colIdx];
+        if (!cellFormula || typeof cellFormula !== 'string') continue;
+
+        // Parse the formula into breakdown
+        const breakdown = this.parseFormulaBreakdown(cellFormula);
+        if (breakdown && breakdown.length > 1) {
+          tx.breakdownAmounts = breakdown.map(n => Math.abs(n));
+        }
+        break; // Found the sheet, no need to continue
+      }
+    }
+
+    return transactions;
   }
 }
 

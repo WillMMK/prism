@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useBudgetStore } from '../../src/store/budgetStore';
 import { Transaction } from '../../src/types/budget';
+import { TransactionDetailModal } from '../../src/components/TransactionDetailModal';
 
 const palette = {
   background: '#F6F3EF',
@@ -16,6 +17,7 @@ const palette = {
   negative: '#D64550',
   border: '#E6DED4',
   wash: '#F2ECE4',
+  highlight: '#F2A15F',
 };
 
 const formatCurrency = (amount: number) =>
@@ -37,13 +39,14 @@ const getSignedAmount = (transaction: Transaction): number =>
   typeof transaction.signedAmount === 'number'
     ? transaction.signedAmount
     : transaction.type === 'income'
-    ? transaction.amount
-    : -transaction.amount;
+      ? transaction.amount
+      : -transaction.amount;
 
 export default function Transactions() {
   const router = useRouter();
   const { transactions, demoConfig } = useBudgetStore();
   const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const formatCurrencySafe = (amount: number) =>
     demoConfig.hideAmounts ? '•••' : formatCurrency(amount);
 
@@ -73,7 +76,11 @@ export default function Transactions() {
       item.description.trim().toLowerCase() !== item.category.trim().toLowerCase();
 
     return (
-      <View style={styles.transactionCard}>
+      <TouchableOpacity
+        style={styles.transactionCard}
+        onPress={() => setSelectedTransaction(item)}
+        activeOpacity={0.7}
+      >
         <View style={styles.transactionLeft}>
           <View style={[styles.iconContainer, { backgroundColor: iconBg }]}>
             <Ionicons name={iconName as any} size={18} color="#fff" />
@@ -90,13 +97,19 @@ export default function Transactions() {
             <Text style={styles.date}>
               {formatShortDate(item.date)}
               {isExpense && isPositive ? ' • rebate' : ''}
+              {item.breakdownAmounts && item.breakdownAmounts.length > 1 ? ' • itemized' : ''}
             </Text>
           </View>
         </View>
-        <Text style={[styles.amount, { color: amountColor }]}>
-          {sign}{formatCurrencySafe(Math.abs(signed))}
-        </Text>
-      </View>
+        <View style={styles.transactionRight}>
+          <Text style={[styles.amount, { color: amountColor }]}>
+            {sign}{formatCurrencySafe(Math.abs(signed))}
+          </Text>
+          {item.breakdownAmounts && item.breakdownAmounts.length > 1 && (
+            <Ionicons name="chevron-forward" size={16} color={palette.muted} style={{ marginLeft: 4 }} />
+          )}
+        </View>
+      </TouchableOpacity>
     );
   };
 
@@ -159,6 +172,12 @@ export default function Transactions() {
       <TouchableOpacity style={styles.fab} onPress={() => router.push('/add-transaction')}>
         <Ionicons name="add" size={24} color="#fff" />
       </TouchableOpacity>
+
+      <TransactionDetailModal
+        visible={selectedTransaction !== null}
+        transaction={selectedTransaction}
+        onClose={() => setSelectedTransaction(null)}
+      />
     </View>
   );
 }
@@ -286,6 +305,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+  },
+  transactionRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   iconContainer: {
     width: 36,
