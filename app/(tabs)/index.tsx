@@ -9,19 +9,9 @@ import { Transaction, CategorySpending, BudgetSummary } from '../../src/types/bu
 import { PieChart } from '../../src/components/PieChart';
 import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
 import { useAutoSync } from '../../src/hooks/useAutoSync';
+import { useTheme, lightPalette as palette } from '../../src/theme';
 
-const palette = {
-  background: '#F6F3EF',
-  card: '#FFFFFF',
-  ink: '#1E1B16',
-  muted: '#6B645C',
-  accent: '#0F766E',
-  accentSoft: '#D6EFE8',
-  positive: '#2F9E44',
-  negative: '#D64550',
-  border: '#E6DED4',
-  highlight: '#F2A15F',
-};
+
 
 const fallbackCategoryColors = [
   '#0072B2',
@@ -185,6 +175,7 @@ const ensureDistinctColors = (items: CategorySpending[]) =>
 
 export default function Dashboard() {
   const router = useRouter();
+  const { colors, isDark } = useTheme();
   const { transactions, categories, getRecentTransactions, getAvailableYears, demoConfig, sheetsConfig } = useBudgetStore();
   const { isPremium } = usePremiumStore();
   const { showToast } = useToastStore();
@@ -287,56 +278,61 @@ export default function Dashboard() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.backgroundOrb} />
-        <View style={styles.backgroundOrbAlt} />
+        <View style={[styles.backgroundOrb, { backgroundColor: colors.accentSoft, opacity: isDark ? 0.2 : 0.6 }]} />
+        <View style={[styles.backgroundOrbAlt, { backgroundColor: isDark ? colors.card : '#FDE7D3', opacity: isDark ? 0.1 : 0.7 }]} />
 
-        <View style={styles.heroCard}>
-          {/* Balance at top - prominent */}
-          <View style={styles.heroTopRow}>
-            <View>
-              <Text style={styles.heroLabel}>Current Balance</Text>
-              <Text style={styles.heroAmount}>{formatCurrencySafe(balanceSummary.balance)}</Text>
-            </View>
-            {/* Compact sync indicator for premium users */}
-            {isPremium && sheetsConfig.isConnected && (
-              <SyncStatusIndicator
-                status={syncStatus}
-                lastSyncTime={lastSyncTime}
-                compact
-                onPress={() => syncNow(false, true)}
-              />
-            )}
-          </View>
 
-          {/* Scope controls */}
-          <View style={styles.heroControls}>
-            <View style={styles.rangePill}>
-              <Text style={styles.rangeText}>
-                {balanceScope === 'year' ? `${selectedYear}` : yearRange}
+        {/* Budget Overview Card */}
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={{ marginBottom: 16 }}>
+            {/* Title Row */}
+            <View style={{ marginBottom: 12 }}>
+              <Text style={[styles.cardTitle, { color: colors.ink }]}>Budget Overview</Text>
+              <Text style={[styles.cardSubtitle, { color: colors.muted }]}>
+                {balanceScope === 'year' ? `${selectedYear}` : 'All Time'}
               </Text>
             </View>
-            <View style={[styles.segmentedControl, styles.heroSegmentedControl]}>
-              {(['year', 'overall'] as BalanceScope[]).map((scope) => (
-                <TouchableOpacity
-                  key={scope}
-                  style={[
-                    styles.segmentedButton,
-                    balanceScope === scope && styles.segmentedButtonActive,
-                  ]}
-                  onPress={() => setBalanceScope(scope)}
-                >
-                  <Text
+
+            {/* Controls Row: Sync button + Segmented control */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View>
+                {isPremium && sheetsConfig.isConnected && (
+                  <SyncStatusIndicator
+                    status={syncStatus}
+                    lastSyncTime={lastSyncTime}
+                    onPress={() => syncNow(false, true)}
+                    compact
+                  />
+                )}
+              </View>
+              <View style={[styles.segmentedControl, { backgroundColor: colors.wash, marginTop: 0 }]}>
+                {(['year', 'overall'] as BalanceScope[]).map((scope) => (
+                  <TouchableOpacity
+                    key={scope}
                     style={[
-                      styles.segmentedText,
-                      balanceScope === scope && styles.segmentedTextActive,
+                      styles.segmentedButton,
+                      balanceScope === scope && {
+                        backgroundColor: colors.card,
+                        shadowColor: colors.ink,
+                        shadowOpacity: 0.05
+                      }
                     ]}
+                    onPress={() => setBalanceScope(scope)}
                   >
-                    {scope === 'year' ? 'This Year' : 'Overall'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      style={[
+                        styles.segmentedText,
+                        { color: colors.muted },
+                        balanceScope === scope && { color: colors.ink, fontWeight: '600' }
+                      ]}
+                    >
+                      {scope === 'year' ? 'This Year' : 'Overall'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
           </View>
 
@@ -349,64 +345,85 @@ export default function Dashboard() {
               {availableYears.map((year) => (
                 <TouchableOpacity
                   key={year}
-                  style={[styles.yearChip, selectedYear === year && styles.yearChipActive]}
+                  style={[
+                    styles.yearChip,
+                    { backgroundColor: colors.wash },
+                    selectedYear === year && { backgroundColor: colors.ink }
+                  ]}
                   onPress={() => setSelectedYear(year)}
                 >
-                  <Text style={[styles.yearChipText, selectedYear === year && styles.yearChipTextActive]}>
+                  <Text style={[
+                    styles.yearChipText,
+                    { color: colors.ink },
+                    selectedYear === year && { color: colors.background }
+                  ]}>
                     {year}
                   </Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
           )}
+
           <View style={styles.heroStats}>
-            <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatLabel}>Income</Text>
-              <Text style={styles.heroStatValuePositive}>
-                {formatCurrencySafe(balanceSummary.totalIncome)}
-              </Text>
-            </View>
-            <View style={styles.heroStatDivider} />
-            <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatLabel}>Expenses</Text>
-              <Text style={styles.heroStatValueNegative}>
-                {formatCurrencySafe(balanceSummary.totalExpenses)}
-              </Text>
-            </View>
-            <View style={styles.heroStatDivider} />
-            <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatLabel}>Savings</Text>
-              <Text style={styles.heroStatValue}>{balanceSummary.savingsRate.toFixed(1)}%</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Category Breakdown</Text>
-          <View style={styles.segmentedControl}>
-            {(['month', 'year'] as Scope[]).map((scope) => (
-              <TouchableOpacity
-                key={scope}
-                style={[
-                  styles.segmentedButton,
-                  categoryScope === scope && styles.segmentedButtonActive,
-                ]}
-                onPress={() => setCategoryScope(scope)}
-              >
-                <Text
-                  style={[
-                    styles.segmentedText,
-                    categoryScope === scope && styles.segmentedTextActive,
-                  ]}
-                >
-                  {scope === 'month' ? 'Monthly' : 'Yearly'}
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: colors.positive }]}>
+                  {formatCompactCurrencySafe(balanceSummary.totalIncome)}
                 </Text>
-              </TouchableOpacity>
-            ))}
+                <Text style={[styles.statLabel, { color: colors.muted }]}>Income</Text>
+              </View>
+              <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: colors.ink }]}>
+                  {formatCompactCurrencySafe(balanceSummary.totalExpenses)}
+                </Text>
+                <Text style={[styles.statLabel, { color: colors.muted }]}>Expenses</Text>
+              </View>
+              <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: balanceSummary.balance >= 0 ? colors.positive : colors.negative }]}>
+                  {formatCompactCurrencySafe(balanceSummary.balance)}
+                </Text>
+                <Text style={[styles.statLabel, { color: colors.muted }]}>Net</Text>
+              </View>
+            </View>
           </View>
         </View>
 
-        <View style={styles.card}>
+        {/* Category Spending Card */}
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 24 }]}>
+          <View style={styles.cardHeader}>
+            <View>
+              <Text style={[styles.cardTitle, { color: colors.ink }]}>Category Breakdown</Text>
+            </View>
+            <View style={[styles.segmentedControl, { backgroundColor: colors.wash }]}>
+              {(['month', 'year'] as Scope[]).map((scope) => (
+                <TouchableOpacity
+                  key={scope}
+                  style={[
+                    styles.segmentedButton,
+                    categoryScope === scope && {
+                      backgroundColor: colors.card,
+                      shadowColor: colors.ink,
+                      shadowOpacity: 0.05
+                    }
+                  ]}
+                  onPress={() => setCategoryScope(scope)}
+                >
+                  <Text
+                    style={[
+                      styles.segmentedText,
+                      { color: colors.muted },
+                      categoryScope === scope && { color: colors.ink, fontWeight: '600' }
+                    ]}
+                  >
+                    {scope === 'month' ? 'Monthly' : 'Yearly'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
           <Text style={styles.cardSubtitle}>{scopeLabel} spending</Text>
           {categorySpending.length === 0 ? (
             <Text style={styles.emptyChartText}>No expenses recorded for this period.</Text>
@@ -870,9 +887,92 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginBottom: 6,
   },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: palette.ink,
+  },
+  cardSubtitle: {
+    fontSize: 13,
+    color: palette.muted,
+    marginTop: 2,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingTop: 8,
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: palette.ink,
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: palette.muted,
+    fontWeight: '500',
+  },
+  statDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: palette.border,
+  },
+  heroStats: {
+    marginTop: 12,
+  },
+  segmentedButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  segmentedButtonActive: {
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  segmentedText: {
+    fontSize: 12,
+    color: palette.muted,
+    fontWeight: '500',
+  },
+  segmentedTextActive: {
+    color: palette.ink,
+    fontWeight: '600',
+  },
+  yearPicker: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  yearChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: palette.wash,
+  },
+  yearChipActive: {
+    backgroundColor: palette.ink,
+  },
+  yearChipText: {
+    fontSize: 13,
+    color: palette.ink,
+    fontWeight: '500',
+  },
+  yearChipTextActive: {
+    color: palette.background,
+  },
 });
-const formatCurrencySafe = (amount: number) =>
-  maskAmount ? '•••' : formatCurrency(amount);
-
-const formatCompactCurrencySafe = (amount: number) =>
-  maskAmount ? '•••' : formatCompactCurrency(amount);

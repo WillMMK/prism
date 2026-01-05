@@ -6,19 +6,7 @@ import { CategorySpending, Transaction } from '../../src/types/budget';
 import { PieChart } from '../../src/components/PieChart';
 import { Sparkline } from '../../src/components/Sparkline';
 
-const palette = {
-  background: '#F6F3EF',
-  card: '#FFFFFF',
-  ink: '#1E1B16',
-  muted: '#6B645C',
-  accent: '#0F766E',
-  accentSoft: '#D6EFE8',
-  positive: '#2F9E44',
-  negative: '#D64550',
-  border: '#E6DED4',
-  wash: '#F2ECE4',
-  highlight: '#F2A15F',
-};
+import { useTheme, lightPalette as palette } from '../../src/theme';
 
 const fallbackCategoryColors = [
   '#0072B2',
@@ -59,8 +47,8 @@ const getSignedAmount = (transaction: Transaction): number =>
   typeof transaction.signedAmount === 'number'
     ? transaction.signedAmount
     : transaction.type === 'income'
-    ? transaction.amount
-    : -transaction.amount;
+      ? transaction.amount
+      : -transaction.amount;
 
 const getLatestDate = (transactions: Transaction[]): Date => {
   const latest = transactions.reduce<Date | null>((max, tx) => {
@@ -137,6 +125,7 @@ const ensureDistinctColors = (items: CategorySpending[]) =>
   }));
 
 export default function Reports() {
+  const { colors, isDark } = useTheme();
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [categoryScope, setCategoryScope] = useState<Scope>('month');
   const [timelineScope, setTimelineScope] = useState<Scope>('month');
@@ -246,25 +235,36 @@ export default function Reports() {
 
   if (transactions.length === 0) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.empty}>
-          <Ionicons name="bar-chart-outline" size={64} color={palette.muted} />
-          <Text style={styles.title}>No Reports</Text>
-          <Text style={styles.subtitle}>Import data to see spending reports.</Text>
+          <Ionicons name="bar-chart-outline" size={64} color={colors.muted} />
+          <Text style={[styles.title, { color: colors.ink }]}>No Reports</Text>
+          <Text style={[styles.subtitle, { color: colors.muted }]}>Import data to see spending reports.</Text>
         </View>
       </View>
     );
   }
 
   const renderTabs = () => (
-    <View style={styles.tabContainer}>
+    <View style={[styles.tabContainer, { backgroundColor: colors.wash }]}>
       {(['overview', 'yearly', 'trends'] as TabType[]).map((tab) => (
         <TouchableOpacity
           key={tab}
-          style={[styles.tab, activeTab === tab && styles.activeTab]}
+          style={[
+            styles.tab,
+            activeTab === tab && {
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border
+            }
+          ]}
           onPress={() => setActiveTab(tab)}
         >
-          <Text style={[styles.tabText, activeTab === tab && styles.activeTabText]}>
+          <Text style={[
+            styles.tabText,
+            { color: colors.muted },
+            activeTab === tab && { color: colors.ink }
+          ]}>
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </Text>
         </TouchableOpacity>
@@ -318,10 +318,10 @@ export default function Reports() {
                 }
               />
               <View style={styles.pieCenter}>
-                <Text style={styles.pieCenterLabel}>
+                <Text style={[styles.pieCenterLabel, { color: colors.muted }]}>
                   {activeCategory ? activeCategory.category : 'Total Spend'}
                 </Text>
-                <Text style={styles.pieCenterValue}>
+                <Text style={[styles.pieCenterValue, { color: colors.ink }]}>
                   {formatCompactCurrencySafe(activeCategory ? activeCategory.amount : totalCategorySpend)}
                 </Text>
                 {activeCategory && (
@@ -545,8 +545,8 @@ export default function Reports() {
             const series = trend.type === 'income'
               ? trendSeries.income
               : trend.type === 'expense'
-              ? trendSeries.expenses
-              : trendSeries.savings;
+                ? trendSeries.expenses
+                : trendSeries.savings;
 
             return (
               <View key={trend.type} style={styles.trendRow}>
@@ -637,9 +637,9 @@ export default function Reports() {
   );
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.backgroundOrb} />
-      <View style={styles.backgroundOrbAlt} />
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
+      <View style={[styles.backgroundOrb, { backgroundColor: colors.accentSoft, opacity: isDark ? 0.2 : 0.6 }]} />
+      <View style={[styles.backgroundOrbAlt, { backgroundColor: isDark ? colors.card : '#FDE7D3', opacity: isDark ? 0.1 : 0.7 }]} />
       {renderTabs()}
       {activeTab === 'overview' && renderOverview()}
       {activeTab === 'yearly' && renderYearly()}

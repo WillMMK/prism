@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   TextInput,
   Platform,
+  Appearance,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSettingsStore, ThemeOption, CurrencyOption, DateFormatOption } from '../../src/store/settingsStore';
@@ -24,35 +25,37 @@ import { usePremiumStore } from '../../src/store/premiumStore';
 import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
 import { useAutoSync } from '../../src/hooks/useAutoSync';
 import { useToastStore } from '../../src/store/toastStore';
+import { useTheme, lightPalette as palette } from '../../src/theme';
 
-const palette = {
-  background: '#F6F3EF',
-  card: '#FFFFFF',
-  ink: '#1E1B16',
-  muted: '#6B645C',
-  accent: '#0F766E',
-  accentSoft: '#D6EFE8',
-  positive: '#2F9E44',
-  negative: '#D64550',
-  border: '#E6DED4',
-  wash: '#F2ECE4',
-  highlight: '#F2A15F',
-};
+
 
 const renderSegmented = <T extends string>(
   options: T[],
   current: T,
   onChange: (val: T) => void,
+  colors: any,
   labels?: Record<T, string>
 ) => (
-  <View style={styles.segmentedControl}>
+  <View style={[styles.segmentedControl, { backgroundColor: colors.wash, marginTop: 0, minWidth: 180 }]}>
     {options.map((opt) => (
       <TouchableOpacity
         key={opt}
-        style={[styles.segmentedButton, current === opt && styles.segmentedButtonActive]}
+        style={[
+          styles.segmentedButton,
+          current === opt && {
+            backgroundColor: colors.card,
+            shadowColor: '#000',
+            shadowOpacity: 0.1,
+            elevation: 2
+          }
+        ]}
         onPress={() => onChange(opt)}
       >
-        <Text style={[styles.segmentedText, current === opt && styles.segmentedTextActive]}>
+        <Text style={[
+          styles.segmentedText,
+          { color: colors.muted, fontSize: 12 },
+          current === opt && { color: colors.ink, fontWeight: '600' }
+        ]}>
           {labels ? labels[opt] : opt.toUpperCase()}
         </Text>
       </TouchableOpacity>
@@ -67,6 +70,9 @@ export default function Settings() {
     currency, setCurrency,
     dateFormat, setDateFormat
   } = useSettingsStore();
+
+  const { colors, isDark } = useTheme();
+
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null);
@@ -643,10 +649,10 @@ export default function Settings() {
     const willImportSummaries = !hasDetailRows && analysis.summaryRowIndices.length > 0;
 
     return (
-      <View style={styles.card}>
-        <View style={styles.formatBadge}>
-          <Ionicons name="git-branch" size={16} color={palette.highlight} />
-          <Text style={styles.formatText}>
+      <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={[styles.formatBadge, { backgroundColor: colors.wash }]}>
+          <Ionicons name="git-branch" size={16} color={colors.highlight} />
+          <Text style={[styles.formatText, { color: colors.ink }]}>
             {willImportSummaries ? 'Monthly Summary Sheet' :
               analysis.sheetType === 'expense' ? 'Expense Sheet' :
                 analysis.sheetType === 'income' ? 'Income Sheet' : 'Mixed Sheet'}
@@ -707,10 +713,10 @@ export default function Settings() {
 
   // Render summary format schema
   const renderSummarySchema = (mapping: SummaryMapping) => (
-    <View style={styles.card}>
-      <View style={styles.formatBadge}>
-        <Ionicons name="calendar" size={16} color={palette.positive} />
-        <Text style={styles.formatText}>Monthly Summary Format</Text>
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View style={[styles.formatBadge, { backgroundColor: colors.wash }]}>
+        <Ionicons name="calendar" size={16} color={colors.positive} />
+        <Text style={[styles.formatText, { color: colors.ink }]}>Monthly Summary Format</Text>
       </View>
 
       <View style={styles.categorySection}>
@@ -782,20 +788,20 @@ export default function Settings() {
 
   // Render transaction format schema
   const renderTransactionSchema = (mapping: ColumnMapping) => (
-    <View style={styles.card}>
-      <View style={styles.formatBadge}>
-        <Ionicons name="list" size={16} color={palette.accent} />
-        <Text style={styles.formatText}>Transaction Log Format</Text>
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View style={[styles.formatBadge, { backgroundColor: colors.wash }]}>
+        <Ionicons name="list" size={16} color={colors.accent} />
+        <Text style={[styles.formatText, { color: colors.ink }]}>Transaction Log Format</Text>
       </View>
 
-      <View style={styles.schemaRow}>
-        <Text style={styles.schemaLabel}>Date:</Text>
-        <Text style={styles.schemaValue}>
+      <View style={[styles.schemaRow, { borderBottomColor: colors.border }]}>
+        <Text style={[styles.schemaLabel, { color: colors.muted }]}>Date:</Text>
+        <Text style={[styles.schemaValue, { color: colors.ink }]}>
           {mapping.dateColumn !== null ? mapping.headers[mapping.dateColumn] : '—'}
         </Text>
       </View>
-      <View style={styles.schemaRow}>
-        <Text style={styles.schemaLabel}>Description:</Text>
+      <View style={[styles.schemaRow, { borderBottomColor: colors.border }]}>
+        <Text style={[styles.schemaLabel, { color: colors.muted }]}>Description:</Text>
         <Text style={styles.schemaValue}>
           {mapping.descriptionColumn !== null ? mapping.headers[mapping.descriptionColumn] : '—'}
         </Text>
@@ -819,135 +825,27 @@ export default function Settings() {
   );
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
       <View style={styles.backgroundOrb} />
       <View style={styles.backgroundOrbAlt} />
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Look & Feel</Text>
 
-        <View style={styles.card}>
-          <View style={styles.settingRow}>
-            <View>
-              <Text style={styles.settingLabel}>App Theme</Text>
-              <Text style={styles.settingHint}>Light, Dark, or System</Text>
-            </View>
-            {renderSegmented<ThemeOption>(
-              ['light', 'dark', 'system'],
-              theme,
-              setTheme,
-              { light: 'Light', dark: 'Dark', system: 'Auto' }
-            )}
-          </View>
 
-          <View style={styles.divider} />
-
-          <View style={styles.settingRow}>
-            <View>
-              <Text style={styles.settingLabel}>Currency</Text>
-              <Text style={styles.settingHint}>Symbol displayed</Text>
-            </View>
-            {renderSegmented<CurrencyOption>(
-              ['USD', 'EUR', 'GBP', 'JPY', 'CNY'],
-              currency,
-              setCurrency
-            )}
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.settingRow}>
-            <View>
-              <Text style={styles.settingLabel}>Date Format</Text>
-              <Text style={styles.settingHint}>For transactions</Text>
-            </View>
-            {renderSegmented<DateFormatOption>(
-              ['MM/DD/YYYY', 'DD/MM/YYYY', 'YYYY-MM-DD'],
-              dateFormat,
-              setDateFormat
-            )}
-          </View>
-
-          <View style={styles.divider} />
-
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => router.push('/dashboard-layout')}
-          >
-            <View style={styles.menuIconBox}>
-              <Ionicons name="grid-outline" size={20} color={palette.ink} />
-            </View>
-            <View style={styles.menuContent}>
-              <Text style={styles.menuTitle}>Dashboard Layout</Text>
-              <Text style={styles.menuSubtitle}>Reorder and toggle widgets</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={palette.muted} />
-          </TouchableOpacity>
-
-          <View style={styles.divider} />
-
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => router.push('/category-styles')}
-          >
-            <View style={styles.menuIconBox}>
-              <Ionicons name="color-palette-outline" size={20} color={palette.ink} />
-            </View>
-            <View style={styles.menuContent}>
-              <Text style={styles.menuTitle}>Category Styling</Text>
-              <Text style={styles.menuSubtitle}>Customize colors and icons</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={palette.muted} />
-          </TouchableOpacity>
-        </View>
-      </View>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Import Data</Text>
-        <View style={styles.card}>
-          <Text style={styles.cardDescription}>
-            Upload an Excel (.xlsx) or CSV file with your budget data
-          </Text>
-
-          <TouchableOpacity
-            style={styles.uploadButton}
-            onPress={handlePickFile}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <>
-                <Ionicons name="document-attach" size={24} color="#fff" />
-                <Text style={styles.uploadButtonText}>
-                  {fileName || 'Select File'}
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {fileName && (
-            <View style={styles.fileInfo}>
-              <Ionicons name="checkmark-circle" size={20} color={palette.positive} />
-              <Text style={styles.fileName} numberOfLines={1}>{fileName}</Text>
-            </View>
-          )}
-        </View>
-      </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Google Sheets</Text>
-        <View style={styles.card}>
-          <Text style={styles.cardDescription}>
+        <Text style={[styles.sectionTitle, { color: colors.ink }]}>Google Sheets</Text>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.cardDescription, { color: colors.muted }]}>
             Connect to Google, then paste your spreadsheet URL.
           </Text>
 
           {!googleConnected ? (
-            <View style={styles.permissionCard}>
-              <Text style={styles.permissionTitle}>Prism works with your data</Text>
-              <Text style={styles.permissionText}>
+            <View style={[styles.permissionCard, { backgroundColor: colors.wash, borderColor: colors.border }]}>
+              <Text style={[styles.permissionTitle, { color: colors.ink }]}>Prism works with your data</Text>
+              <Text style={[styles.permissionText, { color: colors.ink }]}>
                 To sync your budget, we need permission to read and write to Google Sheets.
               </Text>
-              <Text style={styles.permissionNote}>
+              <Text style={[styles.permissionNote, { color: colors.muted }]}>
                 🔒 Prism can only access the spreadsheet you paste. Your data stays on your device.
               </Text>
               <TouchableOpacity
@@ -1210,7 +1108,7 @@ export default function Settings() {
               )}
 
               <TouchableOpacity
-                style={[styles.importButton, isGoogleLoading && styles.disabledButton]}
+                style={[styles.importButton, { backgroundColor: colors.positive }, isGoogleLoading && styles.disabledButton]}
                 onPress={handleGoogleImport}
                 disabled={isGoogleLoading || selectedGoogleSheets.length === 0}
               >
@@ -1220,6 +1118,39 @@ export default function Settings() {
                   {selectedGoogleSheets.length !== 1 ? 's' : ''}
                 </Text>
               </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.ink }]}>Manual File Import</Text>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.cardDescription, { color: colors.muted }]}>
+            Upload an Excel (.xlsx) or CSV file with your budget data
+          </Text>
+
+          <TouchableOpacity
+            style={styles.uploadButton}
+            onPress={handlePickFile}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <>
+                <Ionicons name="document-attach" size={24} color="#fff" />
+                <Text style={styles.uploadButtonText}>
+                  {fileName || 'Select File'}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          {fileName && (
+            <View style={[styles.fileInfo, { backgroundColor: colors.wash }]}>
+              <Ionicons name="checkmark-circle" size={20} color={colors.positive} />
+              <Text style={[styles.fileName, { color: colors.ink }]} numberOfLines={1}>{fileName}</Text>
             </View>
           )}
         </View>
@@ -1250,7 +1181,7 @@ export default function Settings() {
             ))}
 
             <TouchableOpacity
-              style={[styles.importButton, isLoading && styles.disabledButton]}
+              style={[styles.importButton, { backgroundColor: colors.positive }, isLoading && styles.disabledButton]}
               onPress={handleImport}
               disabled={isLoading || selectedSheets.length === 0}
             >
@@ -1275,16 +1206,16 @@ export default function Settings() {
       )}
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Data Status</Text>
-        <View style={styles.card}>
+        <Text style={[styles.sectionTitle, { color: colors.ink }]}>Data Status</Text>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {/* Persistence indicator */}
-          <View style={styles.persistenceRow}>
+          <View style={[styles.persistenceRow, { borderBottomColor: colors.border }]}>
             <Ionicons
               name={_hasHydrated ? 'cloud-done' : 'cloud-outline'}
               size={16}
-              color={_hasHydrated ? palette.positive : palette.muted}
+              color={_hasHydrated ? colors.positive : colors.muted}
             />
-            <Text style={styles.persistenceText}>
+            <Text style={[styles.persistenceText, { color: colors.muted }]}>
               {_hasHydrated ? 'Data persisted locally' : 'Loading saved data...'}
             </Text>
           </View>
@@ -1293,9 +1224,9 @@ export default function Settings() {
             <Ionicons
               name={transactions.length > 0 ? 'checkmark-circle' : 'alert-circle'}
               size={24}
-              color={transactions.length > 0 ? palette.positive : palette.muted}
+              color={transactions.length > 0 ? colors.positive : colors.muted}
             />
-            <Text style={styles.statusText}>
+            <Text style={[styles.statusText, { color: colors.ink }]}>
               {transactions.length > 0
                 ? `${transactions.length} transactions loaded`
                 : 'No data loaded'}
@@ -1745,7 +1676,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: palette.positive,
     padding: 14,
     borderRadius: 12,
     marginTop: 16,

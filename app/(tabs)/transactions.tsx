@@ -6,19 +6,7 @@ import { useBudgetStore } from '../../src/store/budgetStore';
 import { Transaction } from '../../src/types/budget';
 import { TransactionDetailModal } from '../../src/components/TransactionDetailModal';
 
-const palette = {
-  background: '#F6F3EF',
-  card: '#FFFFFF',
-  ink: '#1E1B16',
-  muted: '#6B645C',
-  accent: '#0F766E',
-  accentSoft: '#D6EFE8',
-  positive: '#2F9E44',
-  negative: '#D64550',
-  border: '#E6DED4',
-  wash: '#F2ECE4',
-  highlight: '#F2A15F',
-};
+import { useTheme, lightPalette as palette } from '../../src/theme';
 
 const formatCurrency = (amount: number) =>
   '$' + amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -44,6 +32,7 @@ const getSignedAmount = (transaction: Transaction): number =>
 
 export default function Transactions() {
   const router = useRouter();
+  const { colors, isDark } = useTheme();
   const { transactions, demoConfig } = useBudgetStore();
   const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
@@ -60,16 +49,16 @@ export default function Transactions() {
     const isExpense = item.type === 'expense';
     const amountColor = isExpense
       ? isPositive
-        ? palette.positive
-        : palette.negative
-      : palette.positive;
+        ? colors.positive
+        : colors.negative
+      : colors.positive;
     const sign = isPositive ? '+' : '-';
     const iconName = isPositive ? 'arrow-up' : 'arrow-down';
     const iconBg = isExpense
       ? isPositive
-        ? palette.positive
-        : palette.negative
-      : palette.accent;
+        ? colors.positive
+        : colors.negative
+      : colors.accent;
     const hasDescription =
       item.description &&
       item.description.trim().length > 0 &&
@@ -77,7 +66,7 @@ export default function Transactions() {
 
     return (
       <TouchableOpacity
-        style={styles.transactionCard}
+        style={[styles.transactionCard, { backgroundColor: colors.card, borderColor: colors.border }]}
         onPress={() => setSelectedTransaction(item)}
         activeOpacity={0.7}
       >
@@ -86,11 +75,11 @@ export default function Transactions() {
             <Ionicons name={iconName as any} size={18} color="#fff" />
           </View>
           <View style={styles.transactionInfo}>
-            <Text style={styles.description} numberOfLines={1}>
+            <Text style={[styles.description, { color: colors.ink }]} numberOfLines={1}>
               {item.category}
             </Text>
             {hasDescription && (
-              <Text style={styles.subtext} numberOfLines={1}>
+              <Text style={[styles.subtext, { color: colors.muted }]} numberOfLines={1}>
                 {item.description}
               </Text>
             )}
@@ -106,7 +95,7 @@ export default function Transactions() {
             {sign}{formatCurrencySafe(Math.abs(signed))}
           </Text>
           {item.breakdownAmounts && item.breakdownAmounts.length > 1 && (
-            <Ionicons name="chevron-forward" size={16} color={palette.muted} style={{ marginLeft: 4 }} />
+            <Ionicons name="chevron-forward" size={16} color={colors.muted} style={{ marginLeft: 4 }} />
           )}
         </View>
       </TouchableOpacity>
@@ -115,13 +104,13 @@ export default function Transactions() {
 
   if (transactions.length === 0) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.backgroundOrb} />
         <View style={styles.backgroundOrbAlt} />
         <View style={styles.empty}>
-          <Ionicons name="receipt-outline" size={64} color={palette.muted} />
-          <Text style={styles.title}>No Transactions</Text>
-          <Text style={styles.subtitle}>Connect to Google Sheets to import data.</Text>
+          <Ionicons name="receipt-outline" size={64} color={colors.muted} />
+          <Text style={[styles.title, { color: colors.ink }]}>No Transactions</Text>
+          <Text style={[styles.subtitle, { color: colors.muted }]}>Connect to Google Sheets to import data.</Text>
           <TouchableOpacity style={styles.emptyButton} onPress={() => router.push('/add-transaction')}>
             <Text style={styles.emptyButtonText}>Add a transaction</Text>
             <Ionicons name="add" size={18} color="#fff" />
@@ -132,23 +121,28 @@ export default function Transactions() {
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.backgroundOrb} />
-      <View style={styles.backgroundOrbAlt} />
-      <View style={styles.filterRow}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.backgroundOrb, { backgroundColor: colors.accentSoft, opacity: isDark ? 0.2 : 0.6 }]} />
+      <View style={[styles.backgroundOrbAlt, { backgroundColor: isDark ? colors.card : '#FDE7D3', opacity: isDark ? 0.1 : 0.7 }]} />
+      <View style={[styles.filterRow, { backgroundColor: colors.wash }]}>
         {(['all', 'income', 'expense'] as const).map((type) => (
           <TouchableOpacity
             key={type}
             style={[
               styles.filterButton,
-              filter === type && styles.filterActive,
+              filter === type && {
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.border
+              }
             ]}
             onPress={() => setFilter(type)}
           >
             <Text
               style={[
                 styles.filterText,
-                filter === type && styles.filterTextActive,
+                { color: colors.muted },
+                filter === type && { color: colors.ink }
               ]}
             >
               {type === 'all' ? 'All' : type === 'income' ? 'Income' : 'Expenses'}
@@ -157,7 +151,7 @@ export default function Transactions() {
         ))}
       </View>
 
-      <Text style={styles.count}>
+      <Text style={[styles.count, { color: colors.muted }]}>
         {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? 's' : ''}
       </Text>
 

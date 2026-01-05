@@ -13,18 +13,7 @@ import { Transaction } from '../types/budget';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-const palette = {
-    background: '#F6F3EF',
-    card: '#FFFFFF',
-    ink: '#1E1B16',
-    muted: '#6B645C',
-    accent: '#0F766E',
-    accentSoft: '#D6EFE8',
-    positive: '#2F9E44',
-    negative: '#D64550',
-    border: '#E6DED4',
-    wash: '#F2ECE4',
-};
+import { useTheme, lightPalette as palette } from '../theme';
 
 interface TransactionDetailModalProps {
     visible: boolean;
@@ -51,6 +40,8 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
     transaction,
     onClose,
 }) => {
+    const { colors, isDark } = useTheme();
+
     if (!transaction) return null;
 
     const isExpense = transaction.type === 'expense';
@@ -71,49 +62,49 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
         >
             <View style={styles.overlay}>
                 <TouchableOpacity style={styles.backdrop} onPress={onClose} />
-                <View style={styles.sheet}>
+                <View style={[styles.sheet, { backgroundColor: colors.card }]}>
                     {/* Handle bar */}
-                    <View style={styles.handleBar} />
+                    <View style={[styles.handleBar, { backgroundColor: colors.border }]} />
 
                     {/* Header */}
-                    <View style={styles.header}>
+                    <View style={[styles.header, { borderBottomColor: colors.border }]}>
                         <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                            <Ionicons name="close" size={24} color={palette.muted} />
+                            <Ionicons name="close" size={24} color={colors.muted} />
                         </TouchableOpacity>
-                        <Text style={styles.headerTitle}>Transaction Details</Text>
+                        <Text style={[styles.headerTitle, { color: colors.ink }]}>Transaction Details</Text>
                         <View style={{ width: 40 }} />
                     </View>
 
                     <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
                         {/* Category Badge */}
                         <View style={styles.categoryBadge}>
-                            <View style={[styles.categoryIcon, { backgroundColor: isExpense ? '#FFEEF0' : '#E8F5E9' }]}>
+                            <View style={[styles.categoryIcon, { backgroundColor: isExpense ? (isDark ? '#3E1A1A' : '#FFEEF0') : (isDark ? '#103020' : '#E8F5E9') }]}>
                                 <Ionicons
                                     name={isExpense ? 'arrow-down' : 'arrow-up'}
                                     size={20}
-                                    color={isExpense ? palette.negative : palette.positive}
+                                    color={isExpense ? colors.negative : colors.positive}
                                 />
                             </View>
                             <View>
-                                <Text style={styles.categoryName}>{transaction.category}</Text>
-                                <Text style={styles.categoryDate}>{formatDate(transaction.date)}</Text>
+                                <Text style={[styles.categoryName, { color: colors.ink }]}>{transaction.category}</Text>
+                                <Text style={[styles.categoryDate, { color: colors.muted }]}>{formatDate(transaction.date)}</Text>
                             </View>
                         </View>
 
                         {/* Description if available */}
                         {transaction.description && transaction.description !== transaction.category && (
-                            <View style={styles.descriptionCard}>
-                                <Ionicons name="document-text-outline" size={16} color={palette.muted} />
-                                <Text style={styles.descriptionText}>{transaction.description}</Text>
+                            <View style={[styles.descriptionCard, { backgroundColor: colors.wash }]}>
+                                <Ionicons name="document-text-outline" size={16} color={colors.muted} />
+                                <Text style={[styles.descriptionText, { color: colors.ink }]}>{transaction.description}</Text>
                             </View>
                         )}
 
                         {/* Total Amount */}
-                        <View style={styles.totalCard}>
-                            <Text style={styles.totalLabel}>Total Amount</Text>
+                        <View style={[styles.totalCard, { backgroundColor: colors.wash }]}>
+                            <Text style={[styles.totalLabel, { color: colors.muted }]}>Total Amount</Text>
                             <Text style={[
                                 styles.totalAmount,
-                                { color: isExpense ? palette.negative : palette.positive }
+                                { color: isExpense ? colors.negative : colors.positive }
                             ]}>
                                 {signedAmount < 0 ? '-' : '+'}{formatCurrency(Math.abs(signedAmount))}
                             </Text>
@@ -122,35 +113,35 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                         {/* Breakdown Section */}
                         {hasBreakdown && (
                             <View style={styles.breakdownSection}>
-                                <Text style={styles.breakdownTitle}>
-                                    <Ionicons name="layers-outline" size={16} color={palette.muted} /> Breakdown
+                                <Text style={[styles.breakdownTitle, { color: colors.muted }]}>
+                                    <Ionicons name="layers-outline" size={16} color={colors.muted} /> Breakdown
                                 </Text>
                                 <View style={styles.breakdownList}>
                                     {breakdownItems.map((amount, index) => {
                                         const proportion = totalAbsolute > 0 ? (Math.abs(amount) / totalAbsolute) * 100 : 0;
                                         return (
-                                            <View key={index} style={styles.breakdownItem}>
+                                            <View key={index} style={[styles.breakdownItem, { backgroundColor: colors.background, borderColor: colors.border }]}>
                                                 <View style={styles.breakdownHeader}>
-                                                    <Text style={styles.breakdownIndex}>Item {index + 1}</Text>
+                                                    <Text style={[styles.breakdownIndex, { color: colors.muted }]}>Item {index + 1}</Text>
                                                     <Text style={[
                                                         styles.breakdownAmount,
-                                                        { color: amount < 0 || isExpense ? palette.negative : palette.positive }
+                                                        { color: amount < 0 || isExpense ? colors.negative : colors.positive }
                                                     ]}>
                                                         {amount < 0 ? '-' : isExpense ? '-' : '+'}{formatCurrency(Math.abs(amount))}
                                                     </Text>
                                                 </View>
-                                                <View style={styles.progressBar}>
+                                                <View style={[styles.progressBar, { backgroundColor: colors.wash }]}>
                                                     <View
                                                         style={[
                                                             styles.progressFill,
                                                             {
                                                                 width: `${proportion}%`,
-                                                                backgroundColor: isExpense ? palette.negative : palette.positive,
+                                                                backgroundColor: isExpense ? colors.negative : colors.positive,
                                                             }
                                                         ]}
                                                     />
                                                 </View>
-                                                <Text style={styles.progressPercent}>{proportion.toFixed(0)}%</Text>
+                                                <Text style={[styles.progressPercent, { color: colors.muted }]}>{proportion.toFixed(0)}%</Text>
                                             </View>
                                         );
                                     })}
@@ -159,9 +150,9 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                         )}
 
                         {!hasBreakdown && (
-                            <View style={styles.noBreakdownNote}>
-                                <Ionicons name="information-circle-outline" size={18} color={palette.muted} />
-                                <Text style={styles.noBreakdownText}>
+                            <View style={[styles.noBreakdownNote, { backgroundColor: colors.wash }]}>
+                                <Ionicons name="information-circle-outline" size={18} color={colors.muted} />
+                                <Text style={[styles.noBreakdownText, { color: colors.muted }]}>
                                     This is a single-value transaction with no itemized breakdown.
                                 </Text>
                             </View>

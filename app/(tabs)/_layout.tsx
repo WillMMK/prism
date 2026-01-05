@@ -4,7 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppState } from 'react-native';
 import { flushPendingTransactions } from '../../src/services/transactionSync';
 
+import { useTheme } from '../../src/theme';
+
 export default function TabsLayout() {
+  const { colors, isDark } = useTheme();
   React.useEffect(() => {
     const tryFlush = () => {
       void flushPendingTransactions();
@@ -26,15 +29,15 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerStyle: {
-          backgroundColor: '#1a1a2e',
+          backgroundColor: colors.card,
         },
-        headerTintColor: '#fff',
+        headerTintColor: colors.ink,
         tabBarStyle: {
-          backgroundColor: '#16213e',
-          borderTopColor: '#0f3460',
+          backgroundColor: colors.card,
+          borderTopColor: colors.border,
         },
-        tabBarActiveTintColor: '#e94560',
-        tabBarInactiveTintColor: '#8892b0',
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.muted,
       }}
     >
       <Tabs.Screen
