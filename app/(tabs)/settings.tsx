@@ -10,6 +10,8 @@ import {
   TextInput,
   Platform,
 } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useSettingsStore, ThemeOption, CurrencyOption, DateFormatOption } from '../../src/store/settingsStore';
 import { Ionicons } from '@expo/vector-icons';
 import * as AuthSession from 'expo-auth-session';
 import * as DocumentPicker from 'expo-document-picker';
@@ -37,7 +39,34 @@ const palette = {
   highlight: '#F2A15F',
 };
 
+const renderSegmented = <T extends string>(
+  options: T[],
+  current: T,
+  onChange: (val: T) => void,
+  labels?: Record<T, string>
+) => (
+  <View style={styles.segmentedControl}>
+    {options.map((opt) => (
+      <TouchableOpacity
+        key={opt}
+        style={[styles.segmentedButton, current === opt && styles.segmentedButtonActive]}
+        onPress={() => onChange(opt)}
+      >
+        <Text style={[styles.segmentedText, current === opt && styles.segmentedTextActive]}>
+          {labels ? labels[opt] : opt.toUpperCase()}
+        </Text>
+      </TouchableOpacity>
+    ))}
+  </View>
+);
+
 export default function Settings() {
+  const router = useRouter();
+  const {
+    theme, setTheme,
+    currency, setCurrency,
+    dateFormat, setDateFormat
+  } = useSettingsStore();
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null);
@@ -85,11 +114,10 @@ export default function Settings() {
   const redirectUri = Platform.select({
     ios: iosRedirectUri,
     android: AuthSession.makeRedirectUri({
-      useProxy: false,
       scheme: 'budget-tracker',
       path: 'oauthredirect',
     }),
-    default: AuthSession.makeRedirectUri({ useProxy: false }),
+    default: AuthSession.makeRedirectUri({}),
   }) as string;
   const clientId = Platform.select({
     ios: GOOGLE_AUTH_CONFIG.iosClientId,
@@ -794,6 +822,85 @@ export default function Settings() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.backgroundOrb} />
       <View style={styles.backgroundOrbAlt} />
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Look & Feel</Text>
+
+        <View style={styles.card}>
+          <View style={styles.settingRow}>
+            <View>
+              <Text style={styles.settingLabel}>App Theme</Text>
+              <Text style={styles.settingHint}>Light, Dark, or System</Text>
+            </View>
+            {renderSegmented<ThemeOption>(
+              ['light', 'dark', 'system'],
+              theme,
+              setTheme,
+              { light: 'Light', dark: 'Dark', system: 'Auto' }
+            )}
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.settingRow}>
+            <View>
+              <Text style={styles.settingLabel}>Currency</Text>
+              <Text style={styles.settingHint}>Symbol displayed</Text>
+            </View>
+            {renderSegmented<CurrencyOption>(
+              ['USD', 'EUR', 'GBP', 'JPY', 'CNY'],
+              currency,
+              setCurrency
+            )}
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.settingRow}>
+            <View>
+              <Text style={styles.settingLabel}>Date Format</Text>
+              <Text style={styles.settingHint}>For transactions</Text>
+            </View>
+            {renderSegmented<DateFormatOption>(
+              ['MM/DD/YYYY', 'DD/MM/YYYY', 'YYYY-MM-DD'],
+              dateFormat,
+              setDateFormat
+            )}
+          </View>
+
+          <View style={styles.divider} />
+
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push('/dashboard-layout')}
+          >
+            <View style={styles.menuIconBox}>
+              <Ionicons name="grid-outline" size={20} color={palette.ink} />
+            </View>
+            <View style={styles.menuContent}>
+              <Text style={styles.menuTitle}>Dashboard Layout</Text>
+              <Text style={styles.menuSubtitle}>Reorder and toggle widgets</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={palette.muted} />
+          </TouchableOpacity>
+
+          <View style={styles.divider} />
+
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push('/category-styles')}
+          >
+            <View style={styles.menuIconBox}>
+              <Ionicons name="color-palette-outline" size={20} color={palette.ink} />
+            </View>
+            <View style={styles.menuContent}>
+              <Text style={styles.menuTitle}>Category Styling</Text>
+              <Text style={styles.menuSubtitle}>Customize colors and icons</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={palette.muted} />
+          </TouchableOpacity>
+        </View>
+      </View>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Import Data</Text>
         <View style={styles.card}>
@@ -1883,5 +1990,83 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 40,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  settingLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: palette.ink,
+  },
+  settingHint: {
+    fontSize: 12,
+    color: palette.muted,
+    marginTop: 2,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: palette.wash,
+    marginVertical: 4,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  menuIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: palette.wash,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  menuContent: {
+    flex: 1,
+  },
+  menuTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: palette.ink,
+  },
+  menuSubtitle: {
+    fontSize: 13,
+    color: palette.muted,
+    marginTop: 2,
+  },
+  segmentedControl: {
+    flexDirection: 'row',
+    backgroundColor: palette.wash,
+    borderRadius: 8,
+    padding: 2,
+    marginTop: 8,
+  },
+  segmentedButton: {
+    flex: 1,
+    paddingVertical: 6,
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  segmentedButtonActive: {
+    backgroundColor: palette.card,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  segmentedText: {
+    fontSize: 13,
+    color: palette.muted,
+    fontWeight: '500',
+  },
+  segmentedTextActive: {
+    color: palette.ink,
+    fontWeight: '600',
   },
 });
