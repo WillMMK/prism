@@ -94,6 +94,7 @@ export const useBudgetStore = create<BudgetState>()(
         selectedTabs: [],
         lastKnownTabs: [],
         writeModeBySheet: {},
+        recentSheets: [],
       },
       demoConfig: {
         hideAmounts: false,

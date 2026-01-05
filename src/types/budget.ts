@@ -40,6 +40,12 @@ export interface CategorySpending {
   color: string;
 }
 
+export interface RecentSheet {
+  id: string;
+  name: string;
+  lastUsed: string;
+}
+
 export interface GoogleSheetsConfig {
   spreadsheetId: string;
   sheetName: string;
@@ -50,6 +56,7 @@ export interface GoogleSheetsConfig {
   selectedTabs?: string[];
   lastKnownTabs?: string[];
   writeModeBySheet?: Record<string, SheetWriteMode>;
+  recentSheets?: RecentSheet[];
 }
 
 export interface DemoConfig {
