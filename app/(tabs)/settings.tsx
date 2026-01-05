@@ -16,7 +16,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { xlsxParser, SheetData, ColumnMapping, ParsedFile, SummaryMapping, MixedSheetAnalysis, DataFormat } from '../../src/services/xlsxParser';
 import { useBudgetStore } from '../../src/store/budgetStore';
 import { SheetWriteMode } from '../../src/types/budget';
-import { googleSheetsService, GOOGLE_AUTH_CONFIG, SpreadsheetFile, SheetInfo } from '../../src/services/googleSheets';
+import { googleSheetsService, GOOGLE_AUTH_CONFIG, SpreadsheetFile, SheetInfo, extractSpreadsheetId } from '../../src/services/googleSheets';
 import { useLoadingOverlay } from '../../src/store/loadingOverlayStore';
 import { usePremiumStore } from '../../src/store/premiumStore';
 import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
@@ -43,11 +43,10 @@ export default function Settings() {
   const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
-  const [googleFiles, setGoogleFiles] = useState<SpreadsheetFile[]>([]);
   const [googleSheets, setGoogleSheets] = useState<SheetInfo[]>([]);
   const [selectedSpreadsheet, setSelectedSpreadsheet] = useState<SpreadsheetFile | null>(null);
   const [selectedGoogleSheets, setSelectedGoogleSheets] = useState<string[]>([]);
-  const [googleSearch, setGoogleSearch] = useState('');
+  const [sheetUrlInput, setSheetUrlInput] = useState('');
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleRowCounts, setGoogleRowCounts] = useState<Record<string, number>>({});
   const [writeTargetsExpanded, setWriteTargetsExpanded] = useState(true);
@@ -152,7 +151,7 @@ export default function Settings() {
             tokenResult.expiresIn || undefined
           );
         })
-        .then(() => {
+        .then(async () => {
           setGoogleConnected(true);
           if (sheetsConfig.spreadsheetId && sheetsConfig.selectedTabs?.length) {
             setSheetsConfig({ isConnected: true });
@@ -254,43 +253,27 @@ export default function Settings() {
     }
   };
 
-  const searchSpreadsheets = async () => {
-    const query = googleSearch.trim();
-    if (!query) {
-      Alert.alert('Google Sheets', 'Type a search term first.');
+  const handleLoadFromUrl = async () => {
+    const spreadsheetId = extractSpreadsheetId(sheetUrlInput);
+    if (!spreadsheetId) {
+      Alert.alert('Invalid URL', 'Please paste a valid Google Sheets URL or spreadsheet ID.');
       return;
     }
+
     setIsGoogleLoading(true);
     try {
-      const files = await googleSheetsService.listSpreadsheets(query);
-      setGoogleFiles(files);
-    } catch (error: any) {
-      Alert.alert('Google Sheets', error.message || 'Failed to search spreadsheets.');
-      setGoogleConnected(false);
-    } finally {
-      setIsGoogleLoading(false);
-    }
-  };
-
-  const loadSpreadsheetTabs = async (file: SpreadsheetFile) => {
-    setIsGoogleLoading(true);
-    try {
-      const sheets = await googleSheetsService.getSpreadsheetInfo(file.id);
-      setGoogleSheets(sheets);
-      setSelectedSpreadsheet(file);
-      setSelectedGoogleSheets(sheets.map((sheet) => sheet.title));
-      setGoogleRowCounts({});
-
-      sheets.forEach(async (sheet) => {
-        try {
-          const data = await googleSheetsService.fetchSheetData(file.id, sheet.title);
-          setGoogleRowCounts((prev) => ({ ...prev, [sheet.title]: data.length }));
-        } catch {
-          setGoogleRowCounts((prev) => ({ ...prev, [sheet.title]: sheet.rowCount }));
-        }
+      const metadata = await googleSheetsService.getSpreadsheetMetadata(spreadsheetId);
+      setGoogleSheets(metadata.sheets);
+      setSelectedSpreadsheet({
+        id: spreadsheetId,
+        name: metadata.title || 'Google Sheets',
+        modifiedTime: new Date().toISOString(),
       });
+      setSelectedGoogleSheets(metadata.sheets.map((sheet) => sheet.title));
+      setGoogleRowCounts({});
+      setSheetUrlInput('');
     } catch (error: any) {
-      Alert.alert('Google Sheets', error.message || 'Failed to load sheet tabs.');
+      Alert.alert('Google Sheets', error.message || 'Failed to load spreadsheet. Make sure the URL is correct and you have access.');
     } finally {
       setIsGoogleLoading(false);
     }
@@ -363,11 +346,10 @@ export default function Settings() {
   const handleGoogleDisconnect = async () => {
     await googleSheetsService.clearToken();
     setGoogleConnected(false);
-    setGoogleFiles([]);
     setGoogleSheets([]);
     setSelectedSpreadsheet(null);
     setSelectedGoogleSheets([]);
-    setGoogleSearch('');
+    setSheetUrlInput('');
     setGoogleRowCounts({});
     setSheetsConfig({
       ...sheetsConfig,
@@ -849,19 +831,17 @@ export default function Settings() {
         <Text style={styles.sectionTitle}>Google Sheets</Text>
         <View style={styles.card}>
           <Text style={styles.cardDescription}>
-            Connect to Google, then search for your budget sheet by name.
+            Connect to Google, then paste your spreadsheet URL.
           </Text>
 
           {!googleConnected ? (
             <View style={styles.permissionCard}>
               <Text style={styles.permissionTitle}>Prism works with your data</Text>
               <Text style={styles.permissionText}>
-                To sync your budget, we need permission to access your Google Sheets.
+                To sync your budget, we need permission to read and write to Google Sheets.
               </Text>
               <Text style={styles.permissionNote}>
-                🔒 Privacy Note: Google's permission screen will ask to \"See all spreadsheets.\"
-                This is standard wording, but Prism will strictly only access the single file you select.
-                Your data stays on your device.
+                🔒 Prism can only access the spreadsheet you paste. Your data stays on your device.
               </Text>
               <TouchableOpacity
                 style={[styles.uploadButton, !request && styles.disabledButton]}
@@ -897,31 +877,13 @@ export default function Settings() {
                 status={syncStatus}
                 lastSyncTime={lastSyncTime}
                 pendingCount={pendingCount}
-                onPress={() => syncNow(true)}
+                onPress={() => syncNow(true, true)}
               />
             </View>
           )}
 
           {googleConnected && (
             <View style={styles.googleSection}>
-              <Text style={styles.sheetHeader}>Search for your budget sheet</Text>
-              <View style={styles.searchRow}>
-                <TextInput
-                  value={googleSearch}
-                  onChangeText={setGoogleSearch}
-                  placeholder="Search for your Budget sheet..."
-                  placeholderTextColor={palette.muted}
-                  style={styles.searchInput}
-                />
-                <TouchableOpacity
-                  style={[styles.searchButton, isGoogleLoading && styles.secondaryButtonDisabled]}
-                  onPress={searchSpreadsheets}
-                  disabled={isGoogleLoading}
-                >
-                  <Ionicons name="search" size={16} color="#fff" />
-                </TouchableOpacity>
-              </View>
-
               {selectedSpreadsheet ? (
                 <View style={styles.googleSelectedCard}>
                   <View style={styles.googleRowInfo}>
@@ -937,26 +899,35 @@ export default function Settings() {
                     <Text style={styles.changeButtonText}>Change</Text>
                   </TouchableOpacity>
                 </View>
-              ) : googleFiles.length === 0 ? (
-                <Text style={styles.emptyText}>Search to see matching sheets.</Text>
               ) : (
-                <View style={styles.googleList}>
-                  {googleFiles.map((file) => (
+                <>
+                  <Text style={styles.sheetHeader}>Paste your Google Sheets URL</Text>
+                  <View style={styles.searchRow}>
+                    <TextInput
+                      value={sheetUrlInput}
+                      onChangeText={setSheetUrlInput}
+                      placeholder="https://docs.google.com/spreadsheets/d/..."
+                      placeholderTextColor={palette.muted}
+                      style={styles.searchInput}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
                     <TouchableOpacity
-                      key={file.id}
-                      style={styles.googleRow}
-                      onPress={() => loadSpreadsheetTabs(file)}
+                      style={[styles.searchButton, (isGoogleLoading || !sheetUrlInput.trim()) && styles.secondaryButtonDisabled]}
+                      onPress={handleLoadFromUrl}
+                      disabled={isGoogleLoading || !sheetUrlInput.trim()}
                     >
-                      <View style={styles.googleRowInfo}>
-                        <Text style={styles.googleRowTitle}>{file.name}</Text>
-                        <Text style={styles.googleRowMeta}>
-                          Updated {new Date(file.modifiedTime).toLocaleDateString()}
-                        </Text>
-                      </View>
-                      <Ionicons name="chevron-forward" size={16} color={palette.muted} />
+                      {isGoogleLoading ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Ionicons name="arrow-forward" size={16} color="#fff" />
+                      )}
                     </TouchableOpacity>
-                  ))}
-                </View>
+                  </View>
+                  <Text style={styles.urlHint}>
+                    Open your budget spreadsheet in Google Sheets, copy the URL from your browser, and paste it here.
+                  </Text>
+                </>
               )}
             </View>
           )}
@@ -996,13 +967,19 @@ export default function Settings() {
                 </TouchableOpacity>
               ))}
 
-              {selectedGoogleSheets.length > 0 && (
+              {tabsExpanded && googleSheets.length > 0 && (
+                <Text style={styles.tabGuidance}>
+                  Select the tabs with your budget data, then tap Import below.
+                </Text>
+              )}
+
+              {selectedGoogleSheets.length > 0 && transactions.length > 0 && (
                 <View style={styles.writeTargetCard}>
                   <TouchableOpacity
                     style={styles.writeTargetHeader}
                     onPress={() => setWriteTargetsExpanded((prev) => !prev)}
                   >
-                    <Text style={styles.writeTargetTitle}>Write-back targets</Text>
+                    <Text style={styles.writeTargetTitle}>Where to save new entries</Text>
                     <Ionicons
                       name={writeTargetsExpanded ? 'chevron-up' : 'chevron-down'}
                       size={16}
@@ -1071,7 +1048,7 @@ export default function Settings() {
                 </View>
               )}
 
-              {(sheetsConfig.expenseSheetName || sheetsConfig.incomeSheetName) && (
+              {(sheetsConfig.expenseSheetName || sheetsConfig.incomeSheetName) && transactions.length > 0 && (
                 <View style={styles.writeTargetCard}>
                   <View style={styles.writeTargetHeader}>
                     <Text style={styles.writeTargetTitle}>Sheet settings</Text>
@@ -1110,7 +1087,7 @@ export default function Settings() {
                                       selectedMode === mode && styles.writeModeChipTextActive,
                                     ]}
                                   >
-                                    {mode === 'auto' ? 'Auto' : mode === 'grid' ? 'Grid' : 'Log'}
+                                    {mode === 'auto' ? 'Auto' : mode === 'grid' ? 'Grid' : 'List'}
                                   </Text>
                                 </TouchableOpacity>
                               ))}
@@ -1445,6 +1422,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
+  urlHint: {
+    color: palette.muted,
+    fontSize: 12,
+    marginTop: 8,
+    lineHeight: 18,
+  },
   googleList: {
     gap: 8,
   },
@@ -1543,6 +1526,12 @@ const styles = StyleSheet.create({
     color: palette.muted,
     fontSize: 12,
     marginTop: 2,
+  },
+  tabGuidance: {
+    color: palette.muted,
+    fontSize: 13,
+    marginTop: 12,
+    fontStyle: 'italic',
   },
   writeTargetCard: {
     marginTop: 16,

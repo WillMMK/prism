@@ -57,7 +57,8 @@ const getSignedAmount = (transaction: Transaction): number => {
   if (typeof transaction.signedAmount === 'number') {
     return transaction.signedAmount;
   }
-  return transaction.type === 'income' ? transaction.amount : -transaction.amount;
+  // Rebate is positive (credit against expenses), expense is negative
+  return transaction.type === 'expense' ? -transaction.amount : transaction.amount;
 };
 
 const getNetExpenseTotal = (transactions: Transaction[]): number => {
@@ -65,11 +66,13 @@ const getNetExpenseTotal = (transactions: Transaction[]): number => {
   let rebates = 0;
 
   transactions.forEach((transaction) => {
-    if (transaction.type !== 'expense') return;
+    // Include both expense and rebate transactions
+    if (transaction.type !== 'expense' && transaction.type !== 'rebate') return;
     const signed = getSignedAmount(transaction);
     if (signed < 0) {
       outflow += Math.abs(signed);
     } else {
+      // Positive values are rebates (credits against expenses)
       rebates += signed;
     }
   });
@@ -154,7 +157,8 @@ export const useBudgetStore = create<BudgetState>()(
 
       getCategorySpending: () => {
         const { transactions, categories } = get();
-        const expenses = transactions.filter((t) => t.type === 'expense');
+        // Include both expense and rebate transactions
+        const expenses = transactions.filter((t) => t.type === 'expense' || t.type === 'rebate');
         const totalExpenses = getNetExpenseTotal(expenses);
 
         const categoryTotals = new Map<string, number>();

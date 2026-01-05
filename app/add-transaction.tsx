@@ -30,6 +30,7 @@ const palette = {
   negative: '#D64550',
   border: '#E6DED4',
   highlight: '#F2A15F',
+  wash: '#F2ECE4',
 };
 
 const formatDate = (value: string) => value.slice(0, 10);
@@ -43,12 +44,13 @@ const parseAmount = (raw: string) => {
 const buildTransaction = (
   amount: number,
   breakdownAmounts: number[],
-  type: 'income' | 'expense',
+  type: 'income' | 'expense' | 'rebate',
   date: string,
   category: string,
   note: string
 ): Transaction => {
-  const signedAmount = type === 'income' ? amount : -amount;
+  // Rebate is positive (like income) but categorized as expense-related
+  const signedAmount = type === 'expense' ? -amount : amount;
   return {
     id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     date: date || new Date().toISOString().split('T')[0],
@@ -62,12 +64,13 @@ const buildTransaction = (
 };
 
 const resolveTargetSheet = (
-  type: 'income' | 'expense',
+  type: 'income' | 'expense' | 'rebate',
   config: { sheetName: string; expenseSheetName?: string; incomeSheetName?: string }
 ) => {
   if (type === 'income') {
     return config.incomeSheetName || config.sheetName;
   }
+  // Rebate goes to expense sheet (it's a credit against expenses)
   return config.expenseSheetName || config.sheetName;
 };
 
@@ -77,7 +80,7 @@ export default function AddTransaction() {
   const { showToast } = useToastStore();
   const [amount, setAmount] = useState('');
   const [amountParts, setAmountParts] = useState<number[]>([]);
-  const [type, setType] = useState<'income' | 'expense'>('expense');
+  const [type, setType] = useState<'income' | 'expense' | 'rebate'>('expense');
   const [category, setCategory] = useState('');
   const [note, setNote] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -85,8 +88,12 @@ export default function AddTransaction() {
 
   const topCategories = useMemo(() => {
     const counts = new Map<string, number>();
+    // For rebates, show expense categories since rebates are credits against expenses
+    const filterType = type === 'rebate' ? 'expense' : type;
     transactions.forEach((tx) => {
-      if (tx.type !== type) return;
+      // Include both expense and rebate transactions for expense/rebate category list
+      const txMatchType = tx.type === 'rebate' ? 'expense' : tx.type;
+      if (txMatchType !== filterType) return;
       counts.set(tx.category, (counts.get(tx.category) || 0) + 1);
     });
 
@@ -264,17 +271,25 @@ export default function AddTransaction() {
           </View>
 
           <View style={styles.typeRow}>
-            {(['expense', 'income'] as const).map((value) => (
-              <TouchableOpacity
-                key={value}
-                style={[styles.typePill, type === value && styles.typePillActive]}
-                onPress={() => setType(value)}
-              >
-                <Text style={[styles.typeText, type === value && styles.typeTextActive]}>
-                  {value === 'expense' ? 'Expense' : 'Income'}
-                </Text>
-              </TouchableOpacity>
-            ))}
+            {(['expense', 'rebate', 'income'] as const).map((value) => {
+              const isActive = type === value;
+              const activeStyle = value === 'rebate'
+                ? styles.typePillRebate
+                : value === 'income'
+                  ? styles.typePillIncome
+                  : styles.typePillExpense;
+              return (
+                <TouchableOpacity
+                  key={value}
+                  style={[styles.typePill, isActive && activeStyle]}
+                  onPress={() => setType(value)}
+                >
+                  <Text style={[styles.typeText, isActive && styles.typeTextActive]}>
+                    {value === 'expense' ? 'Expense' : value === 'rebate' ? 'Rebate' : 'Income'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           <View style={styles.section}>
@@ -495,9 +510,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
-  typePillActive: {
-    backgroundColor: palette.accent,
-    borderColor: palette.accent,
+  typePillExpense: {
+    backgroundColor: palette.negative,
+    borderColor: palette.negative,
+  },
+  typePillRebate: {
+    backgroundColor: palette.highlight,
+    borderColor: palette.highlight,
+  },
+  typePillIncome: {
+    backgroundColor: palette.positive,
+    borderColor: palette.positive,
   },
   typeText: {
     fontSize: 13,

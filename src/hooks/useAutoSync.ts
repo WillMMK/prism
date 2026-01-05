@@ -105,11 +105,14 @@ export const useAutoSync = (options?: UseAutoSyncOptions) => {
         console.log(`[AutoSync] Flushed ${processed} pending transactions`);
       }
 
-      // Check if there are external updates
-      const hasUpdates = await googleSheetsService.checkForUpdates(
-        sheetsConfig.spreadsheetId,
-        sheetsConfig.lastSync || null
-      );
+      // Check if there are external updates (skip check when forced)
+      let hasUpdates = true;
+      if (!force) {
+        hasUpdates = await googleSheetsService.checkForUpdates(
+          sheetsConfig.spreadsheetId,
+          sheetsConfig.lastSync || null
+        );
+      }
 
       if (!hasUpdates) {
         // Update last checked time even when no new data
@@ -160,12 +163,16 @@ export const useAutoSync = (options?: UseAutoSyncOptions) => {
         isFirstSync,
       });
 
-      // Update last sync time
-      const now = new Date().toISOString();
+      // Get the sheet's actual modifiedTime and use as lastSync
+      // This ensures future sync checks compare against the same source of truth
+      const sheetModifiedTime = await googleSheetsService.getSpreadsheetModifiedTime(
+        sheetsConfig.spreadsheetId
+      );
+      const syncTime = sheetModifiedTime || new Date().toISOString();
       setSheetsConfig({
-        lastSync: now,
+        lastSync: syncTime,
       });
-      setLastSyncTime(now);
+      setLastSyncTime(syncTime);
 
       if (showOverlay) {
         hideLoading();

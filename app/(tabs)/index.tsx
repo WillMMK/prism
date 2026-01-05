@@ -203,6 +203,19 @@ export default function Dashboard() {
     },
   });
 
+  // Auto-navigate first-time users to Settings
+  const hasNavigatedRef = React.useRef(false);
+  React.useEffect(() => {
+    const isFirstTimeUser = transactions.length === 0 && !sheetsConfig.isConnected;
+    if (isFirstTimeUser && !hasNavigatedRef.current) {
+      hasNavigatedRef.current = true;
+      // Small delay to ensure navigation stack is ready
+      setTimeout(() => {
+        router.push('/settings');
+      }, 100);
+    }
+  }, [transactions.length, sheetsConfig.isConnected, router]);
+
   const recentTransactions = getRecentTransactions(4);
   const availableYears = getAvailableYears();
   const latestDate = useMemo(() => getLatestDate(transactions), [transactions]);
@@ -292,7 +305,7 @@ export default function Dashboard() {
                 status={syncStatus}
                 lastSyncTime={lastSyncTime}
                 compact
-                onPress={() => syncNow(false)}
+                onPress={() => syncNow(false, true)}
               />
             )}
           </View>

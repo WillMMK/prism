@@ -13,7 +13,6 @@ const GOOGLE_ANDROID_CLIENT_ID = '';
 const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets.readonly',
   'https://www.googleapis.com/auth/spreadsheets',
-  'https://www.googleapis.com/auth/drive.readonly',
 ];
 
 const discovery = {
@@ -353,9 +352,9 @@ export class GoogleSheetsService {
     const signedAmount =
       typeof transaction.signedAmount === 'number'
         ? transaction.signedAmount
-        : transaction.type === 'income'
-          ? transaction.amount
-          : -transaction.amount;
+        : transaction.type === 'expense'
+          ? -transaction.amount
+          : transaction.amount; // income and rebate are positive
 
     const safeSet = (index: number | null, value: string | number) => {
       if (index === null || index < 0) return;
@@ -680,10 +679,11 @@ export class GoogleSheetsService {
     const signedAmount =
       typeof transaction.signedAmount === 'number'
         ? transaction.signedAmount
-        : transaction.type === 'income'
-          ? transaction.amount
-          : -transaction.amount;
-    const op = transaction.type === 'income' ? '+' : '-';
+        : transaction.type === 'expense'
+          ? -transaction.amount
+          : transaction.amount; // income and rebate are positive
+    // Rebate uses + operator (credit), expense uses - operator
+    const op = transaction.type === 'expense' ? '-' : '+';
     const breakdown = transaction.breakdownAmounts?.length
       ? transaction.breakdownAmounts
       : [Math.abs(signedAmount)];
@@ -1183,3 +1183,29 @@ export class GoogleSheetsService {
 }
 
 export const googleSheetsService = new GoogleSheetsService();
+
+/**
+ * Extract spreadsheet ID from a Google Sheets URL
+ * Supports formats:
+ * - https://docs.google.com/spreadsheets/d/{ID}/edit
+ * - https://docs.google.com/spreadsheets/d/{ID}/edit#gid=0
+ * - https://docs.google.com/spreadsheets/d/{ID}
+ * - Just the raw ID (44 char alphanumeric)
+ */
+export function extractSpreadsheetId(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  // Check if it's already just an ID (alphanumeric + dashes/underscores, ~44 chars)
+  if (/^[a-zA-Z0-9_-]{20,60}$/.test(trimmed) && !trimmed.includes('/')) {
+    return trimmed;
+  }
+
+  // Extract from URL pattern: /spreadsheets/d/{ID}/
+  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  if (match && match[1]) {
+    return match[1];
+  }
+
+  return null;
+}

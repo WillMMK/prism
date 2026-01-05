@@ -6,7 +6,7 @@ export interface Transaction {
   amount: number;
   signedAmount?: number;
   breakdownAmounts?: number[];
-  type: 'income' | 'expense';
+  type: 'income' | 'expense' | 'rebate';
 }
 
 export type SheetWriteMode = 'auto' | 'grid' | 'transaction';
