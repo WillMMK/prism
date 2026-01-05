@@ -8,6 +8,7 @@ import { useToastStore } from '../../src/store/toastStore';
 import { Transaction, CategorySpending, BudgetSummary } from '../../src/types/budget';
 import { PieChart } from '../../src/components/PieChart';
 import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
+import GlassCard from '../../src/components/GlassCard';
 import { useAutoSync } from '../../src/hooks/useAutoSync';
 import { useTheme, lightPalette as palette } from '../../src/theme';
 
@@ -256,8 +257,7 @@ export default function Dashboard() {
     return (
       <View style={styles.container}>
         <ScrollView contentContainerStyle={styles.content}>
-          <View style={styles.backgroundOrb} />
-          <View style={styles.backgroundOrbAlt} />
+          <View style={[styles.headerGradient, { backgroundColor: 'rgba(15, 118, 110, 0.06)' }]} />
           <View style={styles.emptyCard}>
             <Ionicons name="wallet-outline" size={48} color={palette.accent} />
             <Text style={styles.emptyTitle}>Budget Tracker</Text>
@@ -280,12 +280,21 @@ export default function Dashboard() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={[styles.backgroundOrb, { backgroundColor: colors.accentSoft, opacity: isDark ? 0.2 : 0.6 }]} />
-        <View style={[styles.backgroundOrbAlt, { backgroundColor: isDark ? colors.card : '#FDE7D3', opacity: isDark ? 0.1 : 0.7 }]} />
+        {/* Gradient header that reflects financial health */}
+        <View
+          style={[
+            styles.headerGradient,
+            {
+              backgroundColor: balanceSummary.balance >= 0
+                ? (isDark ? 'rgba(20, 184, 166, 0.15)' : 'rgba(15, 118, 110, 0.08)')
+                : (isDark ? 'rgba(214, 69, 80, 0.15)' : 'rgba(214, 69, 80, 0.06)')
+            }
+          ]}
+        />
 
 
-        {/* Budget Overview Card */}
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        {/* Budget Overview Card - Glassmorphism */}
+        <GlassCard>
           <View style={{ marginBottom: 16 }}>
             {/* Title Row */}
             <View style={{ marginBottom: 12 }}>
@@ -307,14 +316,14 @@ export default function Dashboard() {
                   />
                 )}
               </View>
-              <View style={[styles.segmentedControl, { backgroundColor: colors.wash, marginTop: 0 }]}>
+              <View style={[styles.segmentedControl, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.wash, marginTop: 0 }]}>
                 {(['year', 'overall'] as BalanceScope[]).map((scope) => (
                   <TouchableOpacity
                     key={scope}
                     style={[
                       styles.segmentedButton,
                       balanceScope === scope && {
-                        backgroundColor: colors.card,
+                        backgroundColor: isDark ? 'rgba(255,255,255,0.15)' : colors.card,
                         shadowColor: colors.ink,
                         shadowOpacity: 0.05
                       }
@@ -347,7 +356,7 @@ export default function Dashboard() {
                   key={year}
                   style={[
                     styles.yearChip,
-                    { backgroundColor: colors.wash },
+                    { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.wash },
                     selectedYear === year && { backgroundColor: colors.ink }
                   ]}
                   onPress={() => setSelectedYear(year)}
@@ -372,14 +381,14 @@ export default function Dashboard() {
                 </Text>
                 <Text style={[styles.statLabel, { color: colors.muted }]}>Income</Text>
               </View>
-              <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+              <View style={[styles.statDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.border }]} />
               <View style={styles.statItem}>
                 <Text style={[styles.statValue, { color: colors.ink }]}>
                   {formatCompactCurrencySafe(balanceSummary.totalExpenses)}
                 </Text>
                 <Text style={[styles.statLabel, { color: colors.muted }]}>Expenses</Text>
               </View>
-              <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+              <View style={[styles.statDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.border }]} />
               <View style={styles.statItem}>
                 <Text style={[styles.statValue, { color: balanceSummary.balance >= 0 ? colors.positive : colors.negative }]}>
                   {formatCompactCurrencySafe(balanceSummary.balance)}
@@ -388,22 +397,22 @@ export default function Dashboard() {
               </View>
             </View>
           </View>
-        </View>
+        </GlassCard>
 
-        {/* Category Spending Card */}
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 24 }]}>
+        {/* Category Spending Card - Glassmorphism */}
+        <GlassCard style={{ marginTop: 24 }}>
           <View style={styles.cardHeader}>
             <View>
               <Text style={[styles.cardTitle, { color: colors.ink }]}>Category Breakdown</Text>
             </View>
-            <View style={[styles.segmentedControl, { backgroundColor: colors.wash }]}>
+            <View style={[styles.segmentedControl, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.wash }]}>
               {(['month', 'year'] as Scope[]).map((scope) => (
                 <TouchableOpacity
                   key={scope}
                   style={[
                     styles.segmentedButton,
                     categoryScope === scope && {
-                      backgroundColor: colors.card,
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.15)' : colors.card,
                       shadowColor: colors.ink,
                       shadowOpacity: 0.05
                     }
@@ -424,9 +433,9 @@ export default function Dashboard() {
             </View>
           </View>
 
-          <Text style={styles.cardSubtitle}>{scopeLabel} spending</Text>
+          <Text style={[styles.cardSubtitle, { color: colors.muted }]}>{scopeLabel} spending</Text>
           {categorySpending.length === 0 ? (
-            <Text style={styles.emptyChartText}>No expenses recorded for this period.</Text>
+            <Text style={[styles.emptyChartText, { color: colors.muted }]}>No expenses recorded for this period.</Text>
           ) : (
             <View style={styles.pieLayout}>
               <View style={styles.pieWrapper}>
@@ -443,14 +452,14 @@ export default function Dashboard() {
                   }
                 />
                 <View style={styles.pieCenter}>
-                  <Text style={styles.pieCenterLabel}>
+                  <Text style={[styles.pieCenterLabel, { color: colors.muted }]}>
                     {activeCategory ? activeCategory.category : 'Total Spend'}
                   </Text>
-                  <Text style={styles.pieCenterValue}>
+                  <Text style={[styles.pieCenterValue, { color: colors.ink }]}>
                     {formatCompactCurrencySafe(activeCategory ? activeCategory.amount : totalCategorySpend)}
                   </Text>
                   {activeCategory && (
-                    <Text style={styles.pieCenterSub}>
+                    <Text style={[styles.pieCenterSub, { color: colors.muted }]}>
                       {activeCategory.percentage.toFixed(1)}% of total
                     </Text>
                   )}
@@ -469,11 +478,18 @@ export default function Dashboard() {
                 return (
                   <TouchableOpacity
                     key={cat.category}
-                    style={[styles.legendChip, isActive && styles.legendChipActive]}
+                    style={[
+                      styles.legendChip,
+                      { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : colors.wash },
+                      isActive && { backgroundColor: colors.accent }
+                    ]}
                     onPress={() => setSelectedCategoryIndex(isActive ? null : index)}
                   >
                     <View style={[styles.legendDot, { backgroundColor: cat.color }]} />
-                    <Text style={styles.legendChipText} numberOfLines={1}>
+                    <Text style={[
+                      styles.legendChipText,
+                      { color: isActive ? '#fff' : colors.ink }
+                    ]} numberOfLines={1}>
                       {cat.category}
                     </Text>
                   </TouchableOpacity>
@@ -481,23 +497,23 @@ export default function Dashboard() {
               })}
             </ScrollView>
           )}
-        </View>
+        </GlassCard>
 
         {recentTransactions.length > 0 && (
-          <View style={styles.card}>
+          <GlassCard style={{ marginTop: 24 }}>
             <View style={styles.sectionHeaderInline}>
-              <Text style={styles.sectionTitle}>Latest Activity</Text>
-              <Text style={styles.sectionHint}>Newest 4</Text>
+              <Text style={[styles.sectionTitle, { color: colors.ink }]}>Latest Activity</Text>
+              <Text style={[styles.sectionHint, { color: colors.muted }]}>Newest 4</Text>
             </View>
-            {recentTransactions.map((tx) => {
+            {recentTransactions.map((tx, index) => {
               const signed = getSignedAmount(tx);
               const isPositive = signed > 0;
               const isExpense = tx.type === 'expense';
               const amountColor = isExpense
                 ? isPositive
-                  ? palette.positive
-                  : palette.negative
-                : palette.positive;
+                  ? colors.positive
+                  : colors.negative
+                : colors.positive;
               const sign = isPositive ? '+' : '-';
               const hasDescription =
                 tx.description &&
@@ -505,15 +521,22 @@ export default function Dashboard() {
                 tx.description.trim().toLowerCase() !== tx.category.trim().toLowerCase();
 
               return (
-                <View key={tx.id} style={styles.transactionRow}>
+                <View
+                  key={tx.id}
+                  style={[
+                    styles.transactionRow,
+                    { borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : colors.border },
+                    index === recentTransactions.length - 1 && { borderBottomWidth: 0 }
+                  ]}
+                >
                   <View style={styles.transactionInfo}>
-                    <Text style={styles.transactionDesc} numberOfLines={1}>
+                    <Text style={[styles.transactionDesc, { color: colors.ink }]} numberOfLines={1}>
                       {tx.category}
                     </Text>
                     {hasDescription && (
-                      <Text style={styles.transactionMeta}>{tx.description}</Text>
+                      <Text style={[styles.transactionMeta, { color: colors.muted }]}>{tx.description}</Text>
                     )}
-                    <Text style={styles.transactionMeta}>{formatShortDate(tx.date)}</Text>
+                    <Text style={[styles.transactionMeta, { color: colors.muted }]}>{formatShortDate(tx.date)}</Text>
                   </View>
                   <Text style={[styles.transactionAmount, { color: amountColor }]}>
                     {sign}{formatCurrencySafe(Math.abs(signed))}
@@ -521,12 +544,12 @@ export default function Dashboard() {
                 </View>
               );
             })}
-          </View>
+          </GlassCard>
         )}
 
         <View style={styles.bottomPadding} />
       </ScrollView>
-      <TouchableOpacity style={styles.fab} onPress={() => router.push('/add-transaction')}>
+      <TouchableOpacity style={[styles.fab, { backgroundColor: colors.highlight }]} onPress={() => router.push('/add-transaction')}>
         <Ionicons name="add" size={24} color="#fff" />
       </TouchableOpacity>
     </View>
@@ -557,25 +580,14 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
   },
-  backgroundOrb: {
+  headerGradient: {
     position: 'absolute',
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: palette.accentSoft,
-    opacity: 0.6,
-    top: -80,
-    right: -60,
-  },
-  backgroundOrbAlt: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: '#FDE7D3',
-    opacity: 0.7,
-    bottom: 120,
-    left: -80,
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 280,
+    borderBottomLeftRadius: 40,
+    borderBottomRightRadius: 40,
   },
   heroCard: {
     backgroundColor: palette.card,
@@ -898,11 +910,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.ink,
   },
-  cardSubtitle: {
-    fontSize: 13,
-    color: palette.muted,
-    marginTop: 2,
-  },
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -915,64 +922,14 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 20,
     fontWeight: '700',
-    color: palette.ink,
     marginBottom: 4,
   },
   statLabel: {
     fontSize: 12,
-    color: palette.muted,
     fontWeight: '500',
   },
   statDivider: {
     width: 1,
     height: 32,
-    backgroundColor: palette.border,
-  },
-  heroStats: {
-    marginTop: 12,
-  },
-  segmentedButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  segmentedButtonActive: {
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  segmentedText: {
-    fontSize: 12,
-    color: palette.muted,
-    fontWeight: '500',
-  },
-  segmentedTextActive: {
-    color: palette.ink,
-    fontWeight: '600',
-  },
-  yearPicker: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
-  yearChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: palette.wash,
-  },
-  yearChipActive: {
-    backgroundColor: palette.ink,
-  },
-  yearChipText: {
-    fontSize: 13,
-    color: palette.ink,
-    fontWeight: '500',
-  },
-  yearChipTextActive: {
-    color: palette.background,
   },
 });
