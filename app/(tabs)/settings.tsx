@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
   Platform,
   Appearance,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useSettingsStore, ThemeOption, CurrencyOption, DateFormatOption } from '../../src/store/settingsStore';
 import { Ionicons } from '@expo/vector-icons';
 import * as AuthSession from 'expo-auth-session';
@@ -64,7 +64,7 @@ const renderSegmented = <T extends string>(
 );
 
 export default function Settings() {
-  const router = useRouter();
+  const { sheetUrl, autoLoad } = useLocalSearchParams<{ sheetUrl?: string; autoLoad?: string }>();
   const {
     theme, setTheme,
     currency, setCurrency,
@@ -86,6 +86,8 @@ export default function Settings() {
   const [googleRowCounts, setGoogleRowCounts] = useState<Record<string, number>>({});
   const [writeTargetsExpanded, setWriteTargetsExpanded] = useState(true);
   const [detectedWriteModes, setDetectedWriteModes] = useState<Record<string, 'grid' | 'transaction'>>({});
+  const pendingSheetUrlRef = useRef<string | null>(null);
+  const autoLoadedSheetUrlRef = useRef<string | null>(null);
 
   const {
     setTransactions,
@@ -287,8 +289,10 @@ export default function Settings() {
     }
   };
 
-  const handleLoadFromUrl = async () => {
-    const spreadsheetId = extractSpreadsheetId(sheetUrlInput);
+  const handleLoadFromUrl = async (overrideUrl?: string) => {
+    const candidateRaw = overrideUrl ?? sheetUrlInput ?? '';
+    const candidateUrl = (typeof candidateRaw === 'string' ? candidateRaw : String(candidateRaw)).trim();
+    const spreadsheetId = extractSpreadsheetId(candidateUrl);
     if (!spreadsheetId) {
       Alert.alert('Invalid URL', 'Please paste a valid Google Sheets URL or spreadsheet ID.');
       return;
@@ -312,6 +316,20 @@ export default function Settings() {
       setIsGoogleLoading(false);
     }
   };
+
+  useEffect(() => {
+    const normalizedUrl = Array.isArray(sheetUrl) ? sheetUrl[0]?.trim() : sheetUrl?.trim();
+    if (!normalizedUrl) return;
+    if (pendingSheetUrlRef.current !== normalizedUrl) {
+      pendingSheetUrlRef.current = normalizedUrl;
+      setSheetUrlInput(normalizedUrl ?? '');
+    }
+    if (autoLoad === '1' && googleConnected) {
+      if (autoLoadedSheetUrlRef.current === normalizedUrl) return;
+      autoLoadedSheetUrlRef.current = normalizedUrl;
+      void handleLoadFromUrl(normalizedUrl);
+    }
+  }, [autoLoad, googleConnected, sheetUrl]);
 
   const toggleGoogleSheet = (sheetName: string) => {
     setSelectedGoogleSheets((prev) =>
