@@ -379,8 +379,9 @@ export class GoogleSheetsService {
     const sampleData = await this.fetchSheetData(spreadsheetId, sheetName, 'A1:Z20', {
       valueRenderOption: 'FORMULA',
     });
-    const headerRow = sampleData[0] || [];
-    const hasHeader = this.isLikelyHeaderRow(headerRow, sampleData.slice(1));
+    const headerRowIndex = this.findHeaderRowIndex(sampleData);
+    const hasHeader = headerRowIndex !== null;
+    const headerRow = hasHeader ? sampleData[headerRowIndex] || [] : sampleData[0] || [];
     const maxColumns = Math.max(
       headerRow.length,
       0,
@@ -390,7 +391,7 @@ export class GoogleSheetsService {
     const headers = hasHeader
       ? headerRow
       : Array.from({ length: maxColumns }, () => '');
-    const dataRows = hasHeader ? sampleData.slice(1) : sampleData;
+    const dataRows = sampleData.slice(hasHeader ? headerRowIndex + 1 : 0);
     const mapping = this.inferSchema(headers, dataRows);
     const formulaColumns = new Set<number>();
     const sampleRow = dataRows.find(row => row.some(cell => String(cell ?? '').trim().length > 0)) || [];
@@ -797,10 +798,10 @@ export class GoogleSheetsService {
     // Common patterns for each field type
     const datePatterns = /date|time|when|day|month|year|period|posted|posting|transaction|tanggal/i;
     const amountPatterns =
-      /amount|total|sum|price|cost|value|money|expense|income|credit|debit|withdrawal|deposit|inflow|outflow|balance|jumlah|\$|£|€/i;
-    const categoryPatterns = /category|type|group|class|kind|tag|label|department|account|bucket|subcategory|kategori/i;
+      /amount|total|sum|price|cost|value|money|expense|income|credit|debit|withdrawal|inflow|outflow|balance|jumlah|\$|£|€/i;
+    const categoryPatterns = /category|categories|type|group|class|kind|tag|label|department|account|bucket|subcategory|kategori/i;
     const descriptionPatterns =
-      /description|desc|name|title|memo|note|detail|details|item|transaction|what|merchant|vendor|payee|narration|reference|ref|keterangan/i;
+      /description|desc|name|title|memo|note|notes|detail|details|item|transaction|what|merchant|vendor|payee|narration|reference|ref|keterangan/i;
 
     headers.forEach((header, index) => {
       const headerLower = header.toLowerCase().trim();
@@ -831,6 +832,19 @@ export class GoogleSheetsService {
           mapping.amountColumn = index;
         }
       });
+
+      if (mapping.categoryColumn === null) {
+        for (let i = 0; i < headers.length; i += 1) {
+          if (i === mapping.dateColumn || i === mapping.amountColumn || i === mapping.descriptionColumn) {
+            continue;
+          }
+          const sampleValues = sampleRows.slice(0, 8).map(row => row[i] || '');
+          if (this.looksLikeCategoryValues(sampleValues)) {
+            mapping.categoryColumn = i;
+            break;
+          }
+        }
+      }
 
       // Default: first text column after date/amount is description
       if (mapping.descriptionColumn === null) {
@@ -876,6 +890,18 @@ export class GoogleSheetsService {
 
     if (textDominant && nextHasNumeric) return true;
     return false;
+  }
+
+  private findHeaderRowIndex(rows: string[][]): number | null {
+    const scanLimit = Math.min(10, rows.length);
+    for (let i = 0; i < scanLimit; i += 1) {
+      const row = rows[i] || [];
+      if (row.length === 0) continue;
+      if (this.isLikelyHeaderRow(row, rows.slice(i + 1, i + 6))) {
+        return i;
+      }
+    }
+    return null;
   }
 
   private getRowMetrics(row: string[]): {
@@ -949,16 +975,50 @@ export class GoogleSheetsService {
     return textCount >= values.length * 0.4;
   }
 
+  private looksLikeCategoryValues(values: string[]): boolean {
+    const normalized = values
+      .map(value => String(value ?? '').toLowerCase().trim())
+      .filter(value => value.length > 0);
+    if (normalized.length === 0) return false;
+
+    const categoryTokens = new Set(['income', 'expense', 'expenses']);
+    const matchCount = normalized.filter(value => categoryTokens.has(value)).length;
+    return matchCount >= Math.max(2, Math.ceil(normalized.length * 0.5));
+  }
+
+  private resolveTypeFromCategory(categoryValue: string): 'income' | 'expense' | null {
+    const normalized = categoryValue.toLowerCase().trim();
+    if (normalized === 'income') return 'income';
+    if (normalized === 'expense' || normalized === 'expenses') return 'expense';
+    const incomeKeywords = [
+      'paycheck', 'salary', 'wage', 'wages', 'bonus', 'commission',
+      'interest', 'dividend', 'dividends', 'refund', 'rebate', 'cashback',
+      'side job', 'freelance', 'consulting', 'rental', 'rent income',
+    ];
+    if (incomeKeywords.some(keyword => normalized.includes(keyword))) return 'income';
+    return null;
+  }
+
+  private resolveCategoryValue(categoryValue: string, descriptionValue: string): string {
+    const normalized = categoryValue.toLowerCase().trim();
+    if (!normalized && descriptionValue.trim()) return descriptionValue;
+    if ((normalized === 'income' || normalized === 'expense' || normalized === 'expenses') && descriptionValue.trim()) {
+      return descriptionValue;
+    }
+    return categoryValue;
+  }
+
   private normalizeSheetData(sheetName: string, data: string[][]): SheetData | null {
     if (!data || data.length === 0) return null;
     const maxColumns = Math.max(0, ...data.map(row => row.length));
-    const headerRow = data[0] || [];
-    const hasHeader = this.isLikelyHeaderRow(headerRow, data.slice(1));
+    const headerRowIndex = this.findHeaderRowIndex(data);
+    const hasHeader = headerRowIndex !== null;
+    const headerRow = hasHeader ? data[headerRowIndex] || [] : data[0] || [];
     const headers = hasHeader
       ? Array.from({ length: maxColumns }, (_, index) => String(headerRow[index] ?? ''))
       : Array.from({ length: maxColumns }, () => '');
-    const rawRows = hasHeader ? data.slice(1) : data;
-    const rows = rawRows.map(row =>
+    const dataRows = data.slice(hasHeader ? headerRowIndex + 1 : 0);
+    const rows = dataRows.map(row =>
       Array.from({ length: maxColumns }, (_, index) => String((row || [])[index] ?? ''))
     );
 
@@ -982,7 +1042,7 @@ export class GoogleSheetsService {
       const dateVal = mapping.dateColumn !== null ? row[mapping.dateColumn] : '';
       const descVal = mapping.descriptionColumn !== null ? row[mapping.descriptionColumn] : '';
       const amountVal = mapping.amountColumn !== null ? row[mapping.amountColumn] : '0';
-      const categoryVal = mapping.categoryColumn !== null ? row[mapping.categoryColumn] : 'Uncategorized';
+      const categoryVal = mapping.categoryColumn !== null ? row[mapping.categoryColumn] : '';
 
       // Parse amount - handle various formats
       let type: 'income' | 'expense' = 'expense';
@@ -995,19 +1055,28 @@ export class GoogleSheetsService {
         type = 'expense';
       } else {
         signedAmount = parseFloat(cleanedAmount) || 0;
-        type = signedAmount < 0 ? 'expense' : 'income';
+        const categoryType = this.resolveTypeFromCategory(categoryVal);
+        if (categoryType) {
+          type = categoryType;
+        } else {
+          // For transaction-log format: positive amounts = expense (typical budget behavior)
+          // Negative amounts = income/refund
+          type = signedAmount >= 0 ? 'expense' : 'income';
+        }
       }
 
       // Parse date
       const parsedDate = this.parseDate(dateVal);
+      const resolvedCategory = this.resolveCategoryValue(categoryVal, descVal);
+      const normalizedSignedAmount = type === 'expense' ? -Math.abs(signedAmount) : Math.abs(signedAmount);
 
       return {
         id: `tx_${index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         date: parsedDate,
         description: descVal || 'No description',
-        category: categoryVal || 'Uncategorized',
-        amount: Math.abs(signedAmount),
-        signedAmount,
+        category: resolvedCategory || 'Uncategorized',
+        amount: Math.abs(normalizedSignedAmount),
+        signedAmount: normalizedSignedAmount,
         type,
       };
     }).filter(tx => tx.date || tx.amount !== 0);
@@ -1041,8 +1110,9 @@ export class GoogleSheetsService {
     const firstSheet = sheets[0];
     const sampleData = await this.fetchSheetData(spreadsheetId, firstSheet.title, 'A1:Z20');
 
-    const headerRow = sampleData[0] || [];
-    const hasHeader = this.isLikelyHeaderRow(headerRow, sampleData.slice(1));
+    const headerRowIndex = this.findHeaderRowIndex(sampleData);
+    const hasHeader = headerRowIndex !== null;
+    const headerRow = hasHeader ? sampleData[headerRowIndex] || [] : sampleData[0] || [];
     const maxColumns = Math.max(
       headerRow.length,
       0,
@@ -1052,7 +1122,7 @@ export class GoogleSheetsService {
     const headers = hasHeader
       ? headerRow
       : Array.from({ length: maxColumns }, () => '');
-    const dataRows = hasHeader ? sampleData.slice(1) : sampleData;
+    const dataRows = sampleData.slice(hasHeader ? headerRowIndex + 1 : 0);
 
     const columns = this.inferSchema(headers, dataRows);
 

@@ -1067,7 +1067,7 @@ export default function Settings() {
                       const sheetName = item.sheetName as string;
                       const selectedMode = sheetsConfig.writeModeBySheet?.[sheetName] ?? 'auto';
                       return (
-                        <View key={sheetName} style={styles.sheetSettingRow}>
+                        <View key={`${item.label}-${sheetName}`} style={styles.sheetSettingRow}>
                           <View style={styles.sheetSettingInfo}>
                             <Text style={styles.sheetSettingLabel}>{item.label} sheet</Text>
                             <Text style={styles.sheetSettingMeta}>{sheetName}</Text>

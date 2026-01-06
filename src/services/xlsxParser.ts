@@ -43,6 +43,23 @@ export interface ParsedFile {
   summaryMapping: SummaryMapping | null;
   mixedAnalysis: MixedSheetAnalysis | null;
   detectedFormat: DataFormat;
+  selectedSheetIndex?: number;  // Track which sheet was auto-selected
+}
+
+// Sheet scoring for best-sheet selection
+export interface SheetScore {
+  sheetIndex: number;
+  sheetName: string;
+  score: number;
+  headerRow: number;
+  transactionBlock?: DataBlock;
+}
+
+// Column block detection for multi-region sheets
+export interface DataBlock {
+  startCol: number;
+  endCol: number;
+  headers: string[];
 }
 
 // Common expense category keywords
@@ -227,6 +244,145 @@ class XLSXParserService {
     return Number.isNaN(year) ? null : year;
   }
 
+  // Pattern to skip non-data sheets
+  private static SKIP_SHEET_PATTERNS = /^(instructions?|totals?|summary|category\s*names?|networth|net\s*worth|example|template|dashboard|configuration|readme|about|help)$/i;
+
+  // Score a sheet for transaction-log likelihood
+  private scoreSheet(sheet: SheetData, sheetIndex: number): SheetScore {
+    const score: SheetScore = {
+      sheetIndex,
+      sheetName: sheet.name,
+      score: 0,
+      headerRow: 0,
+    };
+
+    // Penalize known non-data sheets
+    if (XLSXParserService.SKIP_SHEET_PATTERNS.test(sheet.name)) {
+      score.score = -100;
+      return score;
+    }
+
+    // Bonus for month-named sheets (common in annual planners)
+    const monthPattern = /^(Jan|Feb|Mar|Apr|May|June?|Jul|Aug|Sept?|Oct|Nov|Dec)$/i;
+    if (monthPattern.test(sheet.name)) {
+      score.score += 10;
+    }
+
+    // Bonus for sheets named "Transactions"
+    if (/^Transactions$/i.test(sheet.name)) {
+      score.score += 15;
+    }
+
+    // Find best header row (scan first 10 rows)
+    const { bestRow, headerScore } = this.findBestHeaderRow(sheet.headers, sheet.rows);
+    score.headerRow = bestRow;
+    score.score += headerScore;
+
+    // Detect data blocks (for multi-region sheets)
+    score.transactionBlock = this.detectDataBlock(sheet.headers, sheet.rows);
+
+    return score;
+  }
+
+  // Find the best header row by scanning first 10 rows
+  private findBestHeaderRow(headers: string[], rows: string[][]): { bestRow: number; headerScore: number } {
+    let bestScore = this.scoreHeaderRow(headers);
+    let bestRow = 0;
+
+    // Also check first few data rows in case header detection was wrong
+    const maxScan = Math.min(5, rows.length);
+    for (let i = 0; i < maxScan; i++) {
+      const rowScore = this.scoreHeaderRow(rows[i]);
+      if (rowScore > bestScore) {
+        bestScore = rowScore;
+        bestRow = i + 1; // +1 because headers is row 0
+      }
+    }
+
+    return { bestRow, headerScore: bestScore };
+  }
+
+  // Score a row based on transaction-header patterns
+  private scoreHeaderRow(row: string[]): number {
+    if (!row || row.length === 0) return 0;
+
+    const patterns = {
+      date: /^(date|time|when|day|posted|transaction\s*date|posting\s*date|tanggal)$/i,
+      amount: /^(amount|total|sum|price|cost|value|credit|debit|jumlah)$/i,
+      description: /^(description|desc|name|title|memo|note|detail|item|payee|merchant)$/i,
+      category: /^(category|type|group|class|tag|label|account|bucket)$/i,
+    };
+
+    let score = 0;
+    const matched = new Set<string>();
+
+    for (const cell of row) {
+      const value = String(cell || '').trim();
+      if (!value) continue;
+
+      if (!matched.has('date') && patterns.date.test(value)) {
+        score += 25;
+        matched.add('date');
+      } else if (!matched.has('amount') && patterns.amount.test(value)) {
+        score += 25;
+        matched.add('amount');
+      } else if (!matched.has('description') && patterns.description.test(value)) {
+        score += 20;
+        matched.add('description');
+      } else if (!matched.has('category') && patterns.category.test(value)) {
+        score += 20;
+        matched.add('category');
+      }
+    }
+
+    return score;
+  }
+
+  // Detect the first data block (stop at empty column gap)
+  private detectDataBlock(headers: string[], rows: string[][]): DataBlock {
+    let endCol = headers.length - 1;
+
+    // Look for empty column gap (separator between regions)
+    for (let col = 1; col < headers.length; col++) {
+      const headerEmpty = !headers[col]?.trim();
+
+      // Check if column is empty in first 10 data rows
+      const colEmpty = rows.slice(0, 10).every(r => !r[col]?.trim());
+
+      if (headerEmpty && colEmpty) {
+        // Found separator - end block before it
+        endCol = col - 1;
+        break;
+      }
+    }
+
+    return {
+      startCol: 0,
+      endCol,
+      headers: headers.slice(0, endCol + 1),
+    };
+  }
+
+  // Find the best sheet for transaction import
+  private findBestSheet(sheets: SheetData[]): { bestIndex: number; bestScore: SheetScore } {
+    if (sheets.length === 0) {
+      return { bestIndex: 0, bestScore: { sheetIndex: 0, sheetName: '', score: 0, headerRow: 0 } };
+    }
+
+    const scores = sheets.map((sheet, index) => this.scoreSheet(sheet, index));
+
+    // Find highest scoring sheet
+    let bestScore = scores[0];
+    for (const score of scores) {
+      if (score.score > bestScore.score) {
+        bestScore = score;
+      }
+    }
+
+    return { bestIndex: bestScore.sheetIndex, bestScore };
+  }
+
+
   private isLikelyHeaderRow(firstRow: string[], rows: string[][]): boolean {
     if (!firstRow || firstRow.length === 0) return false;
 
@@ -254,6 +410,18 @@ class XLSXParserService {
 
     if (textDominant && nextHasNumeric) return true;
     return false;
+  }
+
+  private findHeaderRowIndex(rows: string[][]): number | null {
+    const scanLimit = Math.min(10, rows.length);
+    for (let i = 0; i < scanLimit; i += 1) {
+      const row = rows[i] || [];
+      if (row.length === 0) continue;
+      if (this.isLikelyHeaderRow(row, rows.slice(i + 1, i + 6))) {
+        return i;
+      }
+    }
+    return null;
   }
 
   private getRowMetrics(row: string[]): {
@@ -306,17 +474,19 @@ class XLSXParserService {
       const jsonData = XLSX.utils.sheet_to_json<string[]>(worksheet, { header: 1 });
 
       if (jsonData.length > 0) {
+        const headerRowIndex = this.findHeaderRowIndex(jsonData);
+        const hasHeader = headerRowIndex !== null;
+        const headerRow = hasHeader ? jsonData[headerRowIndex] || [] : jsonData[0] || [];
+        const dataStartIndex = hasHeader ? headerRowIndex + 1 : 0;
+        const dataRows = jsonData.slice(dataStartIndex);
         const maxColumns = Math.max(0, ...jsonData.map(row => row.length));
-        const headerRow = jsonData[0] || [];
-        const hasHeader = this.isLikelyHeaderRow(headerRow, jsonData.slice(1));
 
         const headers = hasHeader
           ? Array.from({ length: maxColumns }, (_, index) =>
               String((headerRow || [])[index] ?? '')
             )
           : Array.from({ length: maxColumns }, () => '');
-        const rawRows = hasHeader ? jsonData.slice(1) : jsonData;
-        const rows = rawRows.map(row =>
+        const rows = dataRows.map(row =>
           Array.from({ length: maxColumns }, (_, index) =>
             String((row || [])[index] ?? '')
           )
@@ -331,8 +501,26 @@ class XLSXParserService {
       }
     }
 
-    const firstSheet = sheets[0];
-    const detectedFormat = firstSheet ? this.detectFormat(firstSheet) : 'transaction';
+    // Find the best sheet for transaction import (not just first sheet)
+    const { bestIndex, bestScore } = this.findBestSheet(sheets);
+    const targetSheet = sheets[bestIndex];
+
+    // Apply block detection if we have a transaction block
+    let effectiveHeaders = targetSheet?.headers ?? [];
+    let effectiveRows = targetSheet?.rows ?? [];
+
+    if (bestScore.transactionBlock && targetSheet) {
+      const block = bestScore.transactionBlock;
+      // Limit to transaction block columns
+      effectiveHeaders = block.headers;
+      effectiveRows = effectiveRows.map(row => row.slice(block.startCol, block.endCol + 1));
+    }
+
+    const detectedFormat = targetSheet ? this.detectFormat({
+      ...targetSheet,
+      headers: effectiveHeaders,
+      rows: effectiveRows,
+    }) : 'transaction';
 
     let inferredMapping: ColumnMapping = {
       dateColumn: null,
@@ -345,22 +533,42 @@ class XLSXParserService {
     let summaryMapping: SummaryMapping | null = null;
     let mixedAnalysis: MixedSheetAnalysis | null = null;
 
-    if (firstSheet) {
+    if (targetSheet) {
       if (detectedFormat === 'mixed') {
-        mixedAnalysis = this.analyzeMixedSheet(firstSheet);
+        mixedAnalysis = this.analyzeMixedSheet({ ...targetSheet, headers: effectiveHeaders, rows: effectiveRows });
       } else if (detectedFormat === 'summary') {
-        summaryMapping = this.inferSummaryMapping(firstSheet.headers, firstSheet.rows);
+        summaryMapping = this.inferSummaryMapping(effectiveHeaders, effectiveRows);
       } else {
-        inferredMapping = this.inferSchema(firstSheet.headers, firstSheet.rows);
+        inferredMapping = this.inferSchema(effectiveHeaders, effectiveRows);
       }
-      inferredMapping.headers = firstSheet.headers;
+      inferredMapping.headers = effectiveHeaders;
     }
 
-    return { sheets, inferredMapping, summaryMapping, mixedAnalysis, detectedFormat };
+    return {
+      sheets,
+      inferredMapping,
+      summaryMapping,
+      mixedAnalysis,
+      detectedFormat,
+      selectedSheetIndex: bestIndex,
+    };
   }
 
   detectFormat(sheet: SheetData): DataFormat {
     const headers = sheet.headers.map(h => h.toLowerCase().trim());
+
+    // FIRST: Check for clear transaction-log headers
+    // If we have Date+Description+Amount (or Date+Amount+Category), it's transaction format
+    const hasDateHeader = headers.some(h => /^(date|time|posted|transaction\s*date)$/i.test(h));
+    const hasDescriptionHeader = headers.some(h => /^(description|desc|memo|note|payee|merchant)$/i.test(h));
+    const hasAmountHeader = headers.some(h => /^(amount|total|sum|price|cost|value|credit|debit)$/i.test(h));
+    const hasCategoryHeader = headers.some(h => /^(category|type|group|class|tag|bucket)$/i.test(h));
+
+    // Strong transaction-log signal: has at least 3 of 4 key headers
+    const transactionHeaderCount = [hasDateHeader, hasDescriptionHeader, hasAmountHeader, hasCategoryHeader].filter(Boolean).length;
+    if (transactionHeaderCount >= 3) {
+      return 'transaction';
+    }
 
     // Check if this looks like a mixed format (has dates in first column with mixed formats)
     const firstColValues = sheet.rows.map(r => r[0] || '');
@@ -877,7 +1085,7 @@ class XLSXParserService {
       nonEmptyCount++;
       // Check for date patterns or Excel serial numbers
       if (/^\d{4}[\/\-]\d{1,2}/.test(trimmed) ||
-          /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}/.test(trimmed)) {
+        /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}/.test(trimmed)) {
         dateCount++;
       }
       if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)$/i.test(trimmed)) {
@@ -1145,10 +1353,10 @@ class XLSXParserService {
     };
 
     const datePatterns = /^(date|time|when|day|posted|transaction date|posting date|period|month|year|tanggal|fecha|datum)$/i;
-    const amountPatterns = /^(amount|total|sum|price|cost|value|money|credit|debit|withdrawal|deposit|inflow|outflow|jumlah)$/i;
-    const categoryPatterns = /^(category|type|group|class|kind|tag|label|account|bucket|subcategory|kategori|categoria)$/i;
+    const amountPatterns = /^(amount|total|sum|price|cost|value|money|credit|debit|withdrawal|inflow|outflow|jumlah)$/i;
+    const categoryPatterns = /^(category|categories|type|group|class|kind|tag|label|account|bucket|subcategory|kategori|categoria)$/i;
     const descriptionPatterns =
-      /^(description|desc|name|title|memo|note|detail|details|item|transaction|merchant|vendor|payee|narration|reference|ref|keterangan|remarks|particulars)$/i;
+      /^(description|desc|name|title|memo|note|notes|detail|details|item|transaction|merchant|vendor|payee|narration|reference|ref|keterangan|remarks|particulars)$/i;
 
     headers.forEach((header, index) => {
       const headerLower = header.toLowerCase().trim();
@@ -1176,6 +1384,19 @@ class XLSXParserService {
           mapping.amountColumn = index;
         }
       });
+
+      if (mapping.categoryColumn === null) {
+        for (let i = 0; i < headers.length; i += 1) {
+          if (i === mapping.dateColumn || i === mapping.amountColumn || i === mapping.descriptionColumn) {
+            continue;
+          }
+          const sampleValues = sampleRows.slice(0, 8).map(row => row[i] || '');
+          if (this.looksLikeCategoryValues(sampleValues)) {
+            mapping.categoryColumn = i;
+            break;
+          }
+        }
+      }
 
       if (mapping.descriptionColumn === null) {
         for (let i = 0; i < headers.length; i++) {
@@ -1230,6 +1451,39 @@ class XLSXParserService {
     return textCount >= values.length * 0.4;
   }
 
+  private looksLikeCategoryValues(values: string[]): boolean {
+    const normalized = values
+      .map(value => String(value ?? '').toLowerCase().trim())
+      .filter(value => value.length > 0);
+    if (normalized.length === 0) return false;
+
+    const categoryTokens = new Set(['income', 'expense', 'expenses']);
+    const matchCount = normalized.filter(value => categoryTokens.has(value)).length;
+    return matchCount >= Math.max(2, Math.ceil(normalized.length * 0.5));
+  }
+
+  private resolveTypeFromCategory(categoryValue: string): 'income' | 'expense' | null {
+    const normalized = categoryValue.toLowerCase().trim();
+    if (normalized === 'income') return 'income';
+    if (normalized === 'expense' || normalized === 'expenses') return 'expense';
+    const incomeKeywords = [
+      'paycheck', 'salary', 'wage', 'wages', 'bonus', 'commission',
+      'interest', 'dividend', 'dividends', 'refund', 'rebate', 'cashback',
+      'side job', 'freelance', 'consulting', 'rental', 'rent income',
+    ];
+    if (incomeKeywords.some(keyword => normalized.includes(keyword))) return 'income';
+    return null;
+  }
+
+  private resolveCategoryValue(categoryValue: string, descriptionValue: string): string {
+    const normalized = categoryValue.toLowerCase().trim();
+    if (!normalized && descriptionValue.trim()) return descriptionValue;
+    if ((normalized === 'income' || normalized === 'expense' || normalized === 'expenses') && descriptionValue.trim()) {
+      return descriptionValue;
+    }
+    return categoryValue;
+  }
+
   parseTransactions(
     sheetData: SheetData,
     mapping: ColumnMapping,
@@ -1240,7 +1494,7 @@ class XLSXParserService {
       const dateVal = mapping.dateColumn !== null ? row[mapping.dateColumn] : '';
       const descVal = mapping.descriptionColumn !== null ? row[mapping.descriptionColumn] : '';
       const amountVal = mapping.amountColumn !== null ? row[mapping.amountColumn] : '0';
-      const categoryVal = mapping.categoryColumn !== null ? row[mapping.categoryColumn] : 'Uncategorized';
+      const categoryVal = mapping.categoryColumn !== null ? row[mapping.categoryColumn] : '';
 
       let type: 'income' | 'expense' = 'expense';
       const cleanedAmount = (amountVal || '0').replace(/[$,£€\s]/g, '').trim();
@@ -1251,23 +1505,29 @@ class XLSXParserService {
         type = 'expense';
       } else {
         signedAmount = parseFloat(cleanedAmount) || 0;
-        // Use sheet name override if available, otherwise use sign-based detection
-        if (sheetTypeOverride) {
+        const categoryType = this.resolveTypeFromCategory(categoryVal);
+        if (categoryType) {
+          type = categoryType;
+        } else if (sheetTypeOverride) {
           type = sheetTypeOverride;
         } else {
-          type = signedAmount < 0 ? 'expense' : 'income';
+          // For transaction-log format: positive amounts = expense (typical budget behavior)
+          // Negative amounts = income/refund
+          type = signedAmount >= 0 ? 'expense' : 'income';
         }
       }
 
       const parsedDate = this.parseDateFromFirstColumn(dateVal, yearOverride || undefined);
+      const resolvedCategory = this.resolveCategoryValue(categoryVal, descVal);
+      const normalizedSignedAmount = type === 'expense' ? -Math.abs(signedAmount) : Math.abs(signedAmount);
 
       return {
         id: `xlsx_${index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         date: parsedDate,
         description: descVal || 'No description',
-        category: categoryVal || 'Uncategorized',
-        amount: Math.abs(signedAmount),
-        signedAmount,
+        category: resolvedCategory || 'Uncategorized',
+        amount: Math.abs(normalizedSignedAmount),
+        signedAmount: normalizedSignedAmount,
         type,
       };
     }).filter(tx => tx.amount !== 0);
