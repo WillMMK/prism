@@ -10,6 +10,7 @@ export interface MonthlyFinancialReport {
     month: string; // "YYYY-MM"
     generatedAt: string;
     status: ReportStatus;
+    statusExplanation: string; // Why the app gave this status
 
     // Core metrics
     income: number;
@@ -47,6 +48,7 @@ export interface YearlyFinancialReport {
     year: number;
     generatedAt: string;
     status: ReportStatus;
+    statusExplanation: string; // Why the app gave this status
 
     // Core metrics
     totalIncome: number;

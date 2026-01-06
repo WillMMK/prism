@@ -173,8 +173,6 @@ export default function YearlyReportScreen() {
 
     return (
         <View style={[styles.container, { backgroundColor: isDark ? colors.background : '#F8F6F3', paddingTop: insets.top }]}>
-            <View style={[styles.bgGradient, { backgroundColor: isDark ? colors.card : '#FFFBF5', opacity: isDark ? 0.5 : 1 }]} />
-
             <ScrollView
                 style={styles.scrollView}
                 contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
@@ -193,6 +191,9 @@ export default function YearlyReportScreen() {
                             {STATUS_LABELS[report.status]}
                         </Text>
                     </View>
+                    <Text style={[styles.statusExplanation, { color: colors.muted }]}>
+                        {report.statusExplanation}
+                    </Text>
                 </View>
 
                 {/* Year Navigation */}
@@ -337,13 +338,6 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
     },
-    bgGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 300,
-    },
     scrollView: {
         flex: 1,
     },
@@ -385,6 +379,11 @@ const styles = StyleSheet.create({
     statusText: {
         fontSize: 13,
         fontWeight: '600',
+    },
+    statusExplanation: {
+        fontSize: 13,
+        marginTop: 8,
+        fontStyle: 'italic',
     },
     navPills: {
         flexDirection: 'row',

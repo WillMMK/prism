@@ -427,7 +427,7 @@ export default function Dashboard() {
           <GlassCard style={{ marginTop: 20 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <Text style={[styles.cardTitle, { color: colors.ink, fontSize: 17 }]}>Top Spending</Text>
-              <TouchableOpacity onPress={() => router.push('/(tabs)/reports')}>
+              <TouchableOpacity onPress={() => router.push({ pathname: '/(tabs)/reports', params: { tab: 'overview' } })}>
                 <Text style={{ color: colors.accent, fontSize: 14, fontWeight: '500' }}>See All →</Text>
               </TouchableOpacity>
             </View>

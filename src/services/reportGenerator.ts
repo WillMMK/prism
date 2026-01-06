@@ -60,6 +60,33 @@ export function determineStatus(
     return 'maintenance';
 }
 
+/**
+ * Generate the "goal anchor" explanation for a status.
+ * This answers "Why did the app decide this?" without user-defined goals.
+ */
+export function generateStatusExplanation(status: ReportStatus, isYearly: boolean = false): string {
+    if (isYearly) {
+        switch (status) {
+            case 'progress':
+                return 'Your savings rate improved compared to the previous year.';
+            case 'maintenance':
+                return 'Your savings rate remained steady year-over-year.';
+            case 'regression':
+                return 'Your savings rate decreased compared to the previous year.';
+        }
+    }
+
+    // Monthly explanations
+    switch (status) {
+        case 'progress':
+            return 'You increased your net savings compared to your recent average.';
+        case 'maintenance':
+            return 'You maintained your financial position without increasing savings.';
+        case 'regression':
+            return 'You spent more than your income trend supports.';
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Narrative Generation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -174,26 +201,39 @@ function generateSafetyMessage(
     savingsRate: number,
     consecutiveRegressions?: number
 ): string {
-    if (savingsRate >= 20) {
-        return 'You can absorb a one-off expense without stress. Your savings cushion is healthy.';
+    // Safety messages are formalized by status:
+    // Progress → reassurance
+    // Maintenance → neutrality  
+    // Regression → containment
+
+    if (status === 'progress') {
+        if (savingsRate >= 20) {
+            return 'Your savings cushion is healthy. You could handle an unexpected expense without changing course.';
+        }
+        return 'You are building momentum. This is exactly the kind of month that compounds over time.';
     }
 
-    if (savingsRate >= 10) {
-        if (status === 'regression') {
-            return 'You can absorb a one-off expense, but repeating this pattern will stall progress.';
+    if (status === 'maintenance') {
+        if (savingsRate >= 15) {
+            return 'Holding steady at a strong savings rate. Not every month needs to be a push.';
         }
-        return 'You have a reasonable buffer. Stay consistent to maintain momentum.';
+        return 'You held your ground. Sometimes staying level is the right outcome.';
+    }
+
+    // Regression - containment messaging
+    if (savingsRate >= 10) {
+        return 'This month dipped, but your overall position remains stable. One month does not define a trend.';
     }
 
     if (savingsRate >= 0) {
-        if (status === 'regression' && (consecutiveRegressions ?? 0) >= 2) {
-            return 'Consider reviewing discretionary spending. Multiple regression months can impact long-term goals.';
+        if ((consecutiveRegressions ?? 0) >= 2) {
+            return 'A few challenging months in a row. Consider one small adjustment to regain balance.';
         }
-        return 'Your margins are tight. Prioritizing stability over growth is okay for now.';
+        return 'A tighter month. Naming it is the first step — no action required yet.';
     }
 
-    // Negative savings (spending more than earning)
-    return 'You are currently spending more than you earn. Focus on identifying areas to reduce.';
+    // Negative savings
+    return 'You spent more than you earned this month. Identify one area to adjust, then move on.';
 }
 
 function generateOneDecision(
@@ -201,15 +241,18 @@ function generateOneDecision(
     savingsRate: number
 ): string | undefined {
     if (status === 'progress') {
-        return 'Decide whether to maintain this momentum or give yourself a rest month.';
+        return 'Choose whether next month is for continued progress or recovery — either is valid.';
     }
 
-    if (status === 'regression' && savingsRate < 10) {
-        return 'Decide on one category to consciously reduce next month.';
+    if (status === 'regression') {
+        if (savingsRate < 5) {
+            return 'Identify one category to consciously reduce next month.';
+        }
+        return 'Decide if this was a one-off or if something needs to change.';
     }
 
     if (status === 'maintenance') {
-        return 'Decide whether next month is a push month or a hold month.';
+        return 'Choose whether next month is a push or a hold — both have value.';
     }
 
     return undefined;
@@ -256,6 +299,7 @@ export function generateMonthlyReport(
         month,
         generatedAt: new Date().toISOString(),
         status,
+        statusExplanation: generateStatusExplanation(status, false),
 
         income: current.income,
         expenses: current.expenses,
@@ -398,6 +442,7 @@ export function generateYearlyReport(
         year,
         generatedAt: new Date().toISOString(),
         status,
+        statusExplanation: generateStatusExplanation(status, true),
 
         totalIncome,
         totalExpenses,

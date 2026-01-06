@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useBudgetStore } from '../../src/store/budgetStore';
 import { useReportStore } from '../../src/store/reportStore';
 import { usePremiumStore } from '../../src/store/premiumStore';
@@ -130,7 +130,15 @@ const ensureDistinctColors = (items: CategorySpending[]) =>
 
 export default function Reports() {
   const { colors, isDark } = useTheme();
+  const params = useLocalSearchParams<{ tab?: string }>();
   const [activeTab, setActiveTab] = useState<TabType>('overview');
+
+  // Reset to overview when navigating here with tab=overview parameter
+  useEffect(() => {
+    if (params.tab === 'overview') {
+      setActiveTab('overview');
+    }
+  }, [params.tab]);
   const [categoryScope, setCategoryScope] = useState<Scope>('month');
   const [timelineScope, setTimelineScope] = useState<Scope>('month');
   const [focusedYear, setFocusedYear] = useState<number>(new Date().getFullYear());
