@@ -137,13 +137,13 @@ export default function YearlyReportScreen() {
                     <Ionicons name="lock-closed" size={48} color={colors.muted} />
                     <Text style={[styles.gateTitle, { color: colors.ink }]}>Premium Feature</Text>
                     <Text style={[styles.gateSubtitle, { color: colors.muted }]}>
-                        Yearly Financial Reports are available with Prism Premium.
+                        Yearly Financial Reports are available with Prism Plus.
                     </Text>
                     <TouchableOpacity
                         style={[styles.upgradeButton, { backgroundColor: colors.accent }]}
-                        onPress={() => router.push('/settings')}
+                        onPress={() => router.push('/paywall')}
                     >
-                        <Text style={styles.upgradeButtonText}>Unlock Premium</Text>
+                        <Text style={styles.upgradeButtonText}>Get Prism Plus</Text>
                     </TouchableOpacity>
                 </View>
             </View>

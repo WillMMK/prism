@@ -26,10 +26,10 @@ export interface PremiumState {
 export const usePremiumStore = create<PremiumState>()(
   persist(
     (set, get) => ({
-      isPremium: true, // TEMP: enabled for testing
+      isPremium: false, // Default to free tier - unlock via paywall
       purchaseDate: null,
       transactionId: null,
-      autoSyncEnabled: true, // TEMP: enabled for testing
+      autoSyncEnabled: false, // Enable when user upgrades to premium
       syncIntervalMinutes: 30,
 
       setPremium: (isPremium, transactionId) =>

@@ -32,6 +32,7 @@ function AuthenticatedLayout() {
         <Stack.Screen name="category-styles" options={{ presentation: 'card', title: 'Category Styling' }} />
         <Stack.Screen name="monthly-report" options={{ headerShown: false }} />
         <Stack.Screen name="yearly-report" options={{ headerShown: false }} />
+        <Stack.Screen name="paywall" options={{ presentation: 'modal', headerShown: false }} />
       </Stack>
       <Toast />
       <LoadingOverlay />
