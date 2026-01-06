@@ -721,7 +721,7 @@ export default function Settings() {
 
       <View style={styles.categorySection}>
         <Text style={styles.categoryTitle}>
-          <Ionicons name="arrow-down-circle" size={14} color={palette.negative} /> Expense Categories ({mapping.expenseCategories.length})
+          <Ionicons name="remove-circle" size={14} color={palette.negative} /> Expense Categories ({mapping.expenseCategories.length})
         </Text>
         <View style={styles.categoryTags}>
           {mapping.expenseCategories.map((cat, idx) => (
@@ -737,7 +737,7 @@ export default function Settings() {
 
       <View style={styles.categorySection}>
         <Text style={styles.categoryTitle}>
-          <Ionicons name="arrow-up-circle" size={14} color={palette.positive} /> Income Categories ({mapping.incomeCategories.length})
+          <Ionicons name="add-circle" size={14} color={palette.positive} /> Income Categories ({mapping.incomeCategories.length})
         </Text>
         <View style={styles.categoryTags}>
           {mapping.incomeCategories.map((cat, idx) => (

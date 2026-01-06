@@ -293,63 +293,55 @@ export default function Dashboard() {
         />
 
 
-        {/* Budget Overview Card - Glassmorphism */}
+        {/* Budget Overview Card - Premium Design */}
         <GlassCard>
-          <View style={{ marginBottom: 16 }}>
-            {/* Title Row */}
-            <View style={{ marginBottom: 12 }}>
-              <Text style={[styles.cardTitle, { color: colors.ink }]}>Budget Overview</Text>
-              <Text style={[styles.cardSubtitle, { color: colors.muted }]}>
-                {balanceScope === 'year' ? `${selectedYear}` : 'All Time'}
+          {/* Header Row */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+            <View>
+              <Text style={[styles.cardTitle, { color: colors.ink, fontSize: 20, marginBottom: 4 }]}>
+                {balanceScope === 'year' ? `${selectedYear} Overview` : 'All Time'}
               </Text>
+              {isPremium && sheetsConfig.isConnected && (
+                <SyncStatusIndicator
+                  status={syncStatus}
+                  lastSyncTime={lastSyncTime}
+                  onPress={() => syncNow(false, true)}
+                  compact
+                />
+              )}
             </View>
-
-            {/* Controls Row: Sync button + Segmented control */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View>
-                {isPremium && sheetsConfig.isConnected && (
-                  <SyncStatusIndicator
-                    status={syncStatus}
-                    lastSyncTime={lastSyncTime}
-                    onPress={() => syncNow(false, true)}
-                    compact
-                  />
-                )}
-              </View>
-              <View style={[styles.segmentedControl, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.wash, marginTop: 0 }]}>
-                {(['year', 'overall'] as BalanceScope[]).map((scope) => (
-                  <TouchableOpacity
-                    key={scope}
+            <View style={[styles.segmentedControl, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.wash }]}>
+              {(['year', 'overall'] as BalanceScope[]).map((scope) => (
+                <TouchableOpacity
+                  key={scope}
+                  style={[
+                    styles.segmentedButton,
+                    balanceScope === scope && {
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.15)' : colors.card,
+                    }
+                  ]}
+                  onPress={() => setBalanceScope(scope)}
+                >
+                  <Text
                     style={[
-                      styles.segmentedButton,
-                      balanceScope === scope && {
-                        backgroundColor: isDark ? 'rgba(255,255,255,0.15)' : colors.card,
-                        shadowColor: colors.ink,
-                        shadowOpacity: 0.05
-                      }
+                      styles.segmentedText,
+                      { color: colors.muted },
+                      balanceScope === scope && { color: colors.ink, fontWeight: '600' }
                     ]}
-                    onPress={() => setBalanceScope(scope)}
                   >
-                    <Text
-                      style={[
-                        styles.segmentedText,
-                        { color: colors.muted },
-                        balanceScope === scope && { color: colors.ink, fontWeight: '600' }
-                      ]}
-                    >
-                      {scope === 'year' ? 'This Year' : 'Overall'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+                    {scope === 'year' ? 'Year' : 'All'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
 
+          {/* Year Picker */}
           {balanceScope === 'year' && availableYears.length > 1 && (
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.yearPicker}
+              contentContainerStyle={[styles.yearPicker, { marginBottom: 24 }]}
             >
               {availableYears.map((year) => (
                 <TouchableOpacity
@@ -357,14 +349,14 @@ export default function Dashboard() {
                   style={[
                     styles.yearChip,
                     { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.wash },
-                    selectedYear === year && { backgroundColor: colors.ink }
+                    selectedYear === year && { backgroundColor: colors.accent }
                   ]}
                   onPress={() => setSelectedYear(year)}
                 >
                   <Text style={[
                     styles.yearChipText,
                     { color: colors.ink },
-                    selectedYear === year && { color: colors.background }
+                    selectedYear === year && { color: '#fff' }
                   ]}>
                     {year}
                   </Text>
@@ -373,137 +365,116 @@ export default function Dashboard() {
             </ScrollView>
           )}
 
-          <View style={styles.heroStats}>
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={[styles.statValue, { color: colors.positive }]}>
-                  {formatCompactCurrencySafe(balanceSummary.totalIncome)}
+          {/* Hero Balance */}
+          <View style={{ alignItems: 'center', marginBottom: 28 }}>
+            <Text style={[styles.statLabel, { color: colors.muted, fontSize: 13, marginBottom: 6 }]}>
+              Net Savings
+            </Text>
+            <Text style={[styles.statValue, {
+              fontSize: 42,
+              fontWeight: '700',
+              color: balanceSummary.balance >= 0 ? colors.positive : colors.negative,
+              letterSpacing: -1,
+            }]}>
+              {formatCompactCurrencySafe(balanceSummary.balance)}
+            </Text>
+            {balanceSummary.savingsRate !== 0 && (
+              <View style={{
+                backgroundColor: balanceSummary.savingsRate >= 0
+                  ? (isDark ? 'rgba(47, 158, 68, 0.2)' : 'rgba(47, 158, 68, 0.12)')
+                  : (isDark ? 'rgba(214, 69, 80, 0.2)' : 'rgba(214, 69, 80, 0.12)'),
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 20,
+                marginTop: 10,
+              }}>
+                <Text style={{
+                  color: balanceSummary.savingsRate >= 0 ? colors.positive : colors.negative,
+                  fontSize: 14,
+                  fontWeight: '600',
+                }}>
+                  {balanceSummary.savingsRate >= 0 ? '+' : ''}{balanceSummary.savingsRate.toFixed(1)}% savings rate
                 </Text>
-                <Text style={[styles.statLabel, { color: colors.muted }]}>Income</Text>
               </View>
-              <View style={[styles.statDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.border }]} />
-              <View style={styles.statItem}>
-                <Text style={[styles.statValue, { color: colors.ink }]}>
-                  {formatCompactCurrencySafe(balanceSummary.totalExpenses)}
-                </Text>
-                <Text style={[styles.statLabel, { color: colors.muted }]}>Expenses</Text>
-              </View>
-              <View style={[styles.statDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.border }]} />
-              <View style={styles.statItem}>
-                <Text style={[styles.statValue, { color: balanceSummary.balance >= 0 ? colors.positive : colors.negative }]}>
-                  {formatCompactCurrencySafe(balanceSummary.balance)}
-                </Text>
-                <Text style={[styles.statLabel, { color: colors.muted }]}>Net</Text>
-              </View>
+            )}
+          </View>
+
+          {/* Income & Expenses Row */}
+          <View style={{
+            flexDirection: 'row',
+            backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : colors.wash,
+            borderRadius: 16,
+            padding: 16,
+          }}>
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              <Text style={[styles.statLabel, { color: colors.muted, fontSize: 12, marginBottom: 4 }]}>Income</Text>
+              <Text style={[styles.statValue, { color: colors.positive, fontSize: 18 }]}>
+                {formatCompactCurrencySafe(balanceSummary.totalIncome)}
+              </Text>
+            </View>
+            <View style={{ width: 1, backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.border, marginVertical: 4 }} />
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              <Text style={[styles.statLabel, { color: colors.muted, fontSize: 12, marginBottom: 4 }]}>Expenses</Text>
+              <Text style={[styles.statValue, { color: colors.negative, fontSize: 18 }]}>
+                {formatCompactCurrencySafe(balanceSummary.totalExpenses)}
+              </Text>
             </View>
           </View>
         </GlassCard>
 
-        {/* Category Spending Card - Glassmorphism */}
-        <GlassCard style={{ marginTop: 24 }}>
-          <View style={styles.cardHeader}>
-            <View>
-              <Text style={[styles.cardTitle, { color: colors.ink }]}>Category Breakdown</Text>
+        {/* Top Spending - Compact Category View */}
+        {categorySpending.length > 0 && (
+          <GlassCard style={{ marginTop: 20 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={[styles.cardTitle, { color: colors.ink, fontSize: 17 }]}>Top Spending</Text>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/reports')}>
+                <Text style={{ color: colors.accent, fontSize: 14, fontWeight: '500' }}>See All →</Text>
+              </TouchableOpacity>
             </View>
-            <View style={[styles.segmentedControl, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.wash }]}>
-              {(['month', 'year'] as Scope[]).map((scope) => (
-                <TouchableOpacity
-                  key={scope}
-                  style={[
-                    styles.segmentedButton,
-                    categoryScope === scope && {
-                      backgroundColor: isDark ? 'rgba(255,255,255,0.15)' : colors.card,
-                      shadowColor: colors.ink,
-                      shadowOpacity: 0.05
-                    }
-                  ]}
-                  onPress={() => setCategoryScope(scope)}
-                >
-                  <Text
-                    style={[
-                      styles.segmentedText,
-                      { color: colors.muted },
-                      categoryScope === scope && { color: colors.ink, fontWeight: '600' }
-                    ]}
-                  >
-                    {scope === 'month' ? 'Monthly' : 'Yearly'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          <Text style={[styles.cardSubtitle, { color: colors.muted }]}>{scopeLabel} spending</Text>
-          {categorySpending.length === 0 ? (
-            <Text style={[styles.emptyChartText, { color: colors.muted }]}>No expenses recorded for this period.</Text>
-          ) : (
-            <View style={styles.pieLayout}>
-              <View style={styles.pieWrapper}>
-                <PieChart
-                  data={pieCategories.map((cat) => ({
-                    value: cat.amount,
-                    color: cat.color,
-                  }))}
-                  size={200}
-                  innerRadius={72}
-                  selectedIndex={selectedCategoryIndex}
-                  onSlicePress={(index) =>
-                    setSelectedCategoryIndex((prev) => (prev === index ? null : index))
-                  }
-                />
-                <View style={styles.pieCenter}>
-                  <Text style={[styles.pieCenterLabel, { color: colors.muted }]}>
-                    {activeCategory ? activeCategory.category : 'Total Spend'}
-                  </Text>
-                  <Text style={[styles.pieCenterValue, { color: colors.ink }]}>
-                    {formatCompactCurrencySafe(activeCategory ? activeCategory.amount : totalCategorySpend)}
-                  </Text>
-                  {activeCategory && (
-                    <Text style={[styles.pieCenterSub, { color: colors.muted }]}>
-                      {activeCategory.percentage.toFixed(1)}% of total
-                    </Text>
-                  )}
-                </View>
-              </View>
-            </View>
-          )}
-          {categorySpending.length > 0 && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.legendChips}
-            >
-              {pieCategories.map((cat, index) => {
-                const isActive = selectedCategoryIndex === index;
-                return (
-                  <TouchableOpacity
-                    key={cat.category}
-                    style={[
-                      styles.legendChip,
-                      { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : colors.wash },
-                      isActive && { backgroundColor: colors.accent }
-                    ]}
-                    onPress={() => setSelectedCategoryIndex(isActive ? null : index)}
-                  >
-                    <View style={[styles.legendDot, { backgroundColor: cat.color }]} />
-                    <Text style={[
-                      styles.legendChipText,
-                      { color: isActive ? '#fff' : colors.ink }
-                    ]} numberOfLines={1}>
+            {pieCategories.slice(0, 4).map((cat, index) => (
+              <View key={cat.category} style={{ marginBottom: index < 3 ? 14 : 0 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                    <View style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: 5,
+                      backgroundColor: cat.color,
+                      marginRight: 10,
+                    }} />
+                    <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '500' }} numberOfLines={1}>
                       {cat.category}
                     </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          )}
-        </GlassCard>
+                  </View>
+                  <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>
+                    {formatCompactCurrencySafe(cat.amount)}
+                  </Text>
+                </View>
+                <View style={{
+                  height: 6,
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.wash,
+                  borderRadius: 3,
+                  overflow: 'hidden',
+                }}>
+                  <View style={{
+                    height: '100%',
+                    width: `${cat.percentage}%`,
+                    backgroundColor: cat.color,
+                    borderRadius: 3,
+                  }} />
+                </View>
+              </View>
+            ))}
+          </GlassCard>
+        )}
 
         {recentTransactions.length > 0 && (
-          <GlassCard style={{ marginTop: 24 }}>
-            <View style={styles.sectionHeaderInline}>
-              <Text style={[styles.sectionTitle, { color: colors.ink }]}>Latest Activity</Text>
-              <Text style={[styles.sectionHint, { color: colors.muted }]}>Newest 4</Text>
+          <GlassCard style={{ marginTop: 20 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={[styles.cardTitle, { color: colors.ink, fontSize: 17 }]}>Recent Activity</Text>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/transactions')}>
+                <Text style={{ color: colors.accent, fontSize: 14, fontWeight: '500' }}>See All →</Text>
+              </TouchableOpacity>
             </View>
             {recentTransactions.map((tx, index) => {
               const signed = getSignedAmount(tx);
@@ -515,30 +486,44 @@ export default function Dashboard() {
                   : colors.negative
                 : colors.positive;
               const sign = isPositive ? '+' : '-';
-              const hasDescription =
-                tx.description &&
-                tx.description.trim().length > 0 &&
-                tx.description.trim().toLowerCase() !== tx.category.trim().toLowerCase();
 
               return (
                 <View
                   key={tx.id}
-                  style={[
-                    styles.transactionRow,
-                    { borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : colors.border },
-                    index === recentTransactions.length - 1 && { borderBottomWidth: 0 }
-                  ]}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingVertical: 12,
+                    borderBottomWidth: index === recentTransactions.length - 1 ? 0 : 1,
+                    borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : colors.border,
+                  }}
                 >
-                  <View style={styles.transactionInfo}>
-                    <Text style={[styles.transactionDesc, { color: colors.ink }]} numberOfLines={1}>
+                  <View style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 10,
+                    backgroundColor: isExpense
+                      ? (isDark ? 'rgba(214, 69, 80, 0.15)' : 'rgba(214, 69, 80, 0.1)')
+                      : (isDark ? 'rgba(47, 158, 68, 0.15)' : 'rgba(47, 158, 68, 0.1)'),
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: 12,
+                  }}>
+                    <Ionicons
+                      name={isExpense ? 'remove' : 'add'}
+                      size={20}
+                      color={isExpense ? colors.negative : colors.positive}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.ink, fontSize: 15, fontWeight: '600' }} numberOfLines={1}>
                       {tx.category}
                     </Text>
-                    {hasDescription && (
-                      <Text style={[styles.transactionMeta, { color: colors.muted }]}>{tx.description}</Text>
-                    )}
-                    <Text style={[styles.transactionMeta, { color: colors.muted }]}>{formatShortDate(tx.date)}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>
+                      {formatShortDate(tx.date)}
+                    </Text>
                   </View>
-                  <Text style={[styles.transactionAmount, { color: amountColor }]}>
+                  <Text style={{ color: amountColor, fontSize: 15, fontWeight: '600' }}>
                     {sign}{formatCurrencySafe(Math.abs(signed))}
                   </Text>
                 </View>

@@ -1,6 +1,13 @@
 import * as XLSX from 'xlsx';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Transaction } from '../types/budget';
+import {
+  findHeaderRowIndex,
+  inferSchema as inferSheetSchema,
+  looksLikeAmount,
+  resolveCategoryValue,
+  resolveTypeFromCategory,
+} from './xlsxSchema';
 
 export interface SheetData {
   name: string;
@@ -383,84 +390,6 @@ class XLSXParserService {
   }
 
 
-  private isLikelyHeaderRow(firstRow: string[], rows: string[][]): boolean {
-    if (!firstRow || firstRow.length === 0) return false;
-
-    const firstMetrics = this.getRowMetrics(firstRow);
-    if (firstMetrics.nonEmpty === 0) return false;
-
-    const nextRow = rows[0] || [];
-    const nextMetrics = this.getRowMetrics(nextRow);
-
-    const textDominant =
-      firstMetrics.textCount >= Math.max(2, Math.ceil(firstMetrics.nonEmpty * 0.5));
-    const numericLight =
-      firstMetrics.numericCount <= Math.max(1, Math.floor(firstMetrics.nonEmpty * 0.2));
-    const nextHasNumeric =
-      nextMetrics.numericCount >= Math.max(1, Math.ceil(nextMetrics.nonEmpty * 0.3));
-
-    if (textDominant && numericLight) {
-      if (nextHasNumeric) return true;
-      return true;
-    }
-
-    if (firstMetrics.numericCount >= Math.ceil(firstMetrics.nonEmpty * 0.6)) {
-      return false;
-    }
-
-    if (textDominant && nextHasNumeric) return true;
-    return false;
-  }
-
-  private findHeaderRowIndex(rows: string[][]): number | null {
-    const scanLimit = Math.min(10, rows.length);
-    for (let i = 0; i < scanLimit; i += 1) {
-      const row = rows[i] || [];
-      if (row.length === 0) continue;
-      if (this.isLikelyHeaderRow(row, rows.slice(i + 1, i + 6))) {
-        return i;
-      }
-    }
-    return null;
-  }
-
-  private getRowMetrics(row: string[]): {
-    nonEmpty: number;
-    textCount: number;
-    numericCount: number;
-  } {
-    let nonEmpty = 0;
-    let textCount = 0;
-    let numericCount = 0;
-
-    row.forEach(cell => {
-      const value = String(cell ?? '').trim();
-      if (!value) return;
-      nonEmpty += 1;
-
-      if (/[A-Za-z]/.test(value)) {
-        textCount += 1;
-        return;
-      }
-
-      if (this.looksLikeDateValue(value) || this.looksLikeAmount([value])) {
-        numericCount += 1;
-      }
-    });
-
-    return { nonEmpty, textCount, numericCount };
-  }
-
-  private looksLikeDateValue(value: string): boolean {
-    if (!value) return false;
-    if (/^\d{4}[\/\-]\d{1,2}([\/\-]\d{1,2})?$/.test(value)) return true;
-    if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(value)) return true;
-    if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)$/i.test(value)) return true;
-
-    const num = parseFloat(value);
-    return !isNaN(num) && num > 30000 && num < 100000;
-  }
-
   async parseFile(fileUri: string): Promise<ParsedFile> {
     const base64 = await FileSystem.readAsStringAsync(fileUri, {
       encoding: 'base64' as any,
@@ -474,7 +403,7 @@ class XLSXParserService {
       const jsonData = XLSX.utils.sheet_to_json<string[]>(worksheet, { header: 1 });
 
       if (jsonData.length > 0) {
-        const headerRowIndex = this.findHeaderRowIndex(jsonData);
+        const headerRowIndex = findHeaderRowIndex(jsonData);
         const hasHeader = headerRowIndex !== null;
         const headerRow = hasHeader ? jsonData[headerRowIndex] || [] : jsonData[0] || [];
         const dataStartIndex = hasHeader ? headerRowIndex + 1 : 0;
@@ -539,7 +468,7 @@ class XLSXParserService {
       } else if (detectedFormat === 'summary') {
         summaryMapping = this.inferSummaryMapping(effectiveHeaders, effectiveRows);
       } else {
-        inferredMapping = this.inferSchema(effectiveHeaders, effectiveRows);
+        inferredMapping = inferSheetSchema(effectiveHeaders, effectiveRows);
       }
       inferredMapping.headers = effectiveHeaders;
     }
@@ -699,7 +628,7 @@ class XLSXParserService {
       }
 
       const sampleValues = this.getColumnSampleValues(sheet.rows, index);
-      if (this.looksLikeAmount(sampleValues)) {
+      if (looksLikeAmount(sampleValues)) {
         analysis.categoryColumns.push({ index, name: header });
       }
     });
@@ -882,7 +811,7 @@ class XLSXParserService {
 
     headers.forEach((_, index) => {
       const values = this.getColumnSampleValues(rows, index, 20);
-      if (this.looksLikeAmount(values)) {
+      if (looksLikeAmount(values)) {
         count++;
       }
     });
@@ -958,7 +887,7 @@ class XLSXParserService {
       }
 
       const sampleValues = this.getColumnSampleValues(rows, index);
-      if (this.looksLikeAmount(sampleValues)) {
+      if (looksLikeAmount(sampleValues)) {
         numericColumns.push(index);
       }
     });
@@ -1343,147 +1272,6 @@ class XLSXParserService {
     return parseFloat(cleaned) || 0;
   }
 
-  inferSchema(headers: string[], sampleRows: string[][]): ColumnMapping {
-    const mapping: ColumnMapping = {
-      dateColumn: null,
-      descriptionColumn: null,
-      amountColumn: null,
-      categoryColumn: null,
-      headers,
-    };
-
-    const datePatterns = /^(date|time|when|day|posted|transaction date|posting date|period|month|year|tanggal|fecha|datum)$/i;
-    const amountPatterns = /^(amount|total|sum|price|cost|value|money|credit|debit|withdrawal|inflow|outflow|jumlah)$/i;
-    const categoryPatterns = /^(category|categories|type|group|class|kind|tag|label|account|bucket|subcategory|kategori|categoria)$/i;
-    const descriptionPatterns =
-      /^(description|desc|name|title|memo|note|notes|detail|details|item|transaction|merchant|vendor|payee|narration|reference|ref|keterangan|remarks|particulars)$/i;
-
-    headers.forEach((header, index) => {
-      const headerLower = header.toLowerCase().trim();
-
-      if (mapping.dateColumn === null && datePatterns.test(headerLower)) {
-        mapping.dateColumn = index;
-      } else if (mapping.amountColumn === null && amountPatterns.test(headerLower)) {
-        mapping.amountColumn = index;
-      } else if (mapping.categoryColumn === null && categoryPatterns.test(headerLower)) {
-        mapping.categoryColumn = index;
-      } else if (mapping.descriptionColumn === null && descriptionPatterns.test(headerLower)) {
-        mapping.descriptionColumn = index;
-      }
-    });
-
-    if (sampleRows.length > 0) {
-      headers.forEach((_, index) => {
-        const sampleValues = sampleRows.slice(0, 5).map(row => row[index] || '');
-
-        if (mapping.dateColumn === null && this.looksLikeDate(sampleValues)) {
-          mapping.dateColumn = index;
-        }
-
-        if (mapping.amountColumn === null && this.looksLikeAmount(sampleValues)) {
-          mapping.amountColumn = index;
-        }
-      });
-
-      if (mapping.categoryColumn === null) {
-        for (let i = 0; i < headers.length; i += 1) {
-          if (i === mapping.dateColumn || i === mapping.amountColumn || i === mapping.descriptionColumn) {
-            continue;
-          }
-          const sampleValues = sampleRows.slice(0, 8).map(row => row[i] || '');
-          if (this.looksLikeCategoryValues(sampleValues)) {
-            mapping.categoryColumn = i;
-            break;
-          }
-        }
-      }
-
-      if (mapping.descriptionColumn === null) {
-        for (let i = 0; i < headers.length; i++) {
-          if (i !== mapping.dateColumn && i !== mapping.amountColumn && i !== mapping.categoryColumn) {
-            const sampleValues = sampleRows.slice(0, 5).map(row => row[i] || '');
-            if (this.looksLikeText(sampleValues)) {
-              mapping.descriptionColumn = i;
-              break;
-            }
-          }
-        }
-      }
-    }
-
-    return mapping;
-  }
-
-  private looksLikeDate(values: string[]): boolean {
-    const datePatterns = [
-      /^\d{4}-\d{2}-\d{2}/,
-      /^\d{2}\/\d{2}\/\d{4}/,
-      /^\d{2}-\d{2}-\d{4}/,
-      /^\d{1,2}\/\d{1,2}\/\d{2,4}/,
-      /^[A-Za-z]{3}\s+\d{1,2}/,
-      /^\d{1,2}\s+[A-Za-z]{3}/,
-    ];
-
-    const matchCount = values.filter(v =>
-      v && datePatterns.some(pattern => pattern.test(v.trim()))
-    ).length;
-
-    return matchCount >= values.length * 0.5;
-  }
-
-  private looksLikeAmount(values: string[]): boolean {
-    const nonEmptyValues = values.filter(v => String(v).trim().length > 0);
-    if (nonEmptyValues.length === 0) return false;
-
-    const matchCount = nonEmptyValues.filter(v => {
-      const cleaned = String(v).replace(/[$,£€\s()]/g, '').trim();
-      return cleaned && !isNaN(parseFloat(cleaned));
-    }).length;
-
-    return matchCount >= nonEmptyValues.length * 0.5;
-  }
-
-  private looksLikeText(values: string[]): boolean {
-    const textCount = values.filter(v =>
-      v && v.trim().length > 2 && !/^[\d.,\-$€£%()]+$/.test(v.trim())
-    ).length;
-
-    return textCount >= values.length * 0.4;
-  }
-
-  private looksLikeCategoryValues(values: string[]): boolean {
-    const normalized = values
-      .map(value => String(value ?? '').toLowerCase().trim())
-      .filter(value => value.length > 0);
-    if (normalized.length === 0) return false;
-
-    const categoryTokens = new Set(['income', 'expense', 'expenses']);
-    const matchCount = normalized.filter(value => categoryTokens.has(value)).length;
-    return matchCount >= Math.max(2, Math.ceil(normalized.length * 0.5));
-  }
-
-  private resolveTypeFromCategory(categoryValue: string): 'income' | 'expense' | null {
-    const normalized = categoryValue.toLowerCase().trim();
-    if (normalized === 'income') return 'income';
-    if (normalized === 'expense' || normalized === 'expenses') return 'expense';
-    const incomeKeywords = [
-      'paycheck', 'salary', 'wage', 'wages', 'bonus', 'commission',
-      'interest', 'dividend', 'dividends', 'refund', 'rebate', 'cashback',
-      'side job', 'freelance', 'consulting', 'rental', 'rent income',
-    ];
-    if (incomeKeywords.some(keyword => normalized.includes(keyword))) return 'income';
-    return null;
-  }
-
-  private resolveCategoryValue(categoryValue: string, descriptionValue: string): string {
-    const normalized = categoryValue.toLowerCase().trim();
-    if (!normalized && descriptionValue.trim()) return descriptionValue;
-    if ((normalized === 'income' || normalized === 'expense' || normalized === 'expenses') && descriptionValue.trim()) {
-      return descriptionValue;
-    }
-    return categoryValue;
-  }
-
   parseTransactions(
     sheetData: SheetData,
     mapping: ColumnMapping,
@@ -1505,7 +1293,7 @@ class XLSXParserService {
         type = 'expense';
       } else {
         signedAmount = parseFloat(cleanedAmount) || 0;
-        const categoryType = this.resolveTypeFromCategory(categoryVal);
+        const categoryType = resolveTypeFromCategory(categoryVal);
         if (categoryType) {
           type = categoryType;
         } else if (sheetTypeOverride) {
@@ -1518,7 +1306,7 @@ class XLSXParserService {
       }
 
       const parsedDate = this.parseDateFromFirstColumn(dateVal, yearOverride || undefined);
-      const resolvedCategory = this.resolveCategoryValue(categoryVal, descVal);
+      const resolvedCategory = resolveCategoryValue(categoryVal, descVal);
       const normalizedSignedAmount = type === 'expense' ? -Math.abs(signedAmount) : Math.abs(signedAmount);
 
       return {
@@ -1580,7 +1368,7 @@ class XLSXParserService {
           const mapping = this.inferSummaryMapping(sheet.headers, sheet.rows);
           transactions = this.parseSummaryTransactions(sheet, mapping, sheetType, yearOverride);
         } else {
-          const mapping = this.inferSchema(sheet.headers, sheet.rows);
+          const mapping = inferSheetSchema(sheet.headers, sheet.rows);
           transactions = this.parseTransactions(sheet, mapping, sheetType, yearOverride);
         }
 

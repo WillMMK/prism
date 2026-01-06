@@ -53,7 +53,7 @@ export default function Transactions() {
         : colors.negative
       : colors.positive;
     const sign = isPositive ? '+' : '-';
-    const iconName = isPositive ? 'arrow-up' : 'arrow-down';
+    const iconName = isPositive ? 'add' : 'remove';
     const iconBg = isExpense
       ? isPositive
         ? colors.positive
