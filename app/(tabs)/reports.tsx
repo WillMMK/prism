@@ -1,8 +1,12 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useBudgetStore } from '../../src/store/budgetStore';
+import { useReportStore } from '../../src/store/reportStore';
+import { usePremiumStore } from '../../src/store/premiumStore';
 import { CategorySpending, Transaction } from '../../src/types/budget';
+import { ReportStatus } from '../../src/types/report';
 import { PieChart } from '../../src/components/PieChart';
 import { Sparkline } from '../../src/components/Sparkline';
 
@@ -144,6 +148,10 @@ export default function Reports() {
     demoConfig,
   } = useBudgetStore();
 
+  const { getReportList } = useReportStore();
+  const { canUseFeature, isPremium } = usePremiumStore();
+  const hasReportAccess = canUseFeature('advanced_reports');
+
   const monthlyReports = getMonthlyReports(12);
   const yearlyReports = getYearlyReports();
   const trends = getTrends();
@@ -244,6 +252,131 @@ export default function Reports() {
       </View>
     );
   }
+
+  // Status styling for report badges
+  const STATUS_COLORS: Record<ReportStatus, { bg: string; text: string }> = {
+    progress: { bg: '#D1FAE5', text: '#065F46' },
+    maintenance: { bg: '#FEF3C7', text: '#92400E' },
+    regression: { bg: '#FEE2E2', text: '#991B1B' },
+  };
+
+  const STATUS_LABELS: Record<ReportStatus, string> = {
+    progress: 'Progress',
+    maintenance: 'Maintenance',
+    regression: 'Regression',
+  };
+
+  const formatMonthName = (monthStr: string): string => {
+    const [year, month] = monthStr.split('-');
+    const monthIndex = parseInt(month, 10) - 1;
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return monthNames[monthIndex] || monthStr;
+  };
+
+  const formatMonthShort = (monthStr: string): string => {
+    const [, month] = monthStr.split('-');
+    const monthIndex = parseInt(month, 10) - 1;
+    const shortNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${shortNames[monthIndex]} ${monthStr.split('-')[0]}`;
+  };
+
+  // Get the COMPLETED month for "Your Report is Ready" card
+  // Only show reports for months that have ended (not the current month)
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const completedMonthlyReports = monthlyReports.filter(r => r.month < currentMonthKey);
+  const currentReportMonth = completedMonthlyReports[0]?.month;
+  const previousReports = completedMonthlyReports.slice(1, 4); // Next 3 previous months
+
+  // Only show yearly reports for completed years
+  const currentYear = now.getFullYear();
+  const completedYears = availableYears.filter(y => y < currentYear);
+
+  const renderReportEntry = () => {
+    if (transactions.length === 0) return null;
+
+    return (
+      <View style={styles.reportEntrySection}>
+        {/* Current Month Report Card */}
+        {hasReportAccess && currentReportMonth ? (
+          <TouchableOpacity
+            style={[styles.reportCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={() => router.push('/monthly-report')}
+            activeOpacity={0.7}
+          >
+            <View style={styles.reportCardIcon}>
+              <Ionicons name="document-text" size={24} color={colors.accent} />
+            </View>
+            <View style={styles.reportCardContent}>
+              <Text style={[styles.reportCardTitle, { color: colors.ink }]}>
+                Your {formatMonthName(currentReportMonth)} Report is ready
+              </Text>
+              <Text style={[styles.reportCardSubtitle, { color: colors.muted }]}>
+                View this month's financial summary
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.muted} />
+          </TouchableOpacity>
+        ) : !hasReportAccess ? (
+          <TouchableOpacity
+            style={[styles.reportCard, styles.reportCardTeaser, { backgroundColor: isDark ? colors.card : '#FFFBEB', borderColor: isDark ? colors.border : '#FDE68A' }]}
+            onPress={() => router.push('/settings')}
+            activeOpacity={0.7}
+          >
+            <View style={styles.reportCardIcon}>
+              <Ionicons name="lock-closed" size={24} color={isDark ? colors.accent : '#D97706'} />
+            </View>
+            <View style={styles.reportCardContent}>
+              <Text style={[styles.reportCardTitle, { color: isDark ? colors.ink : '#92400E' }]}>
+                Unlock Monthly Financial Reports
+              </Text>
+              <Text style={[styles.reportCardSubtitle, { color: isDark ? colors.muted : '#B45309' }]}>
+                Get personalized insights with Premium
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={isDark ? colors.muted : '#D97706'} />
+          </TouchableOpacity>
+        ) : null}
+
+        {/* Previous Reports List */}
+        {hasReportAccess && previousReports.length > 0 && (
+          <View style={[styles.previousReportsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.previousReportsHeader}>
+              <Ionicons name="folder-outline" size={18} color={colors.muted} />
+              <Text style={[styles.previousReportsTitle, { color: colors.muted }]}>Previous Reports</Text>
+            </View>
+            {previousReports.map((report) => (
+              <TouchableOpacity
+                key={report.month}
+                style={styles.previousReportRow}
+                onPress={() => router.push({ pathname: '/monthly-report', params: { month: report.month } })}
+              >
+                <Text style={[styles.previousReportMonth, { color: colors.ink }]}>
+                  {formatMonthShort(report.month)}
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+              </TouchableOpacity>
+            ))}
+            {/* Year Report Link - only for completed years */}
+            {completedYears.length > 0 && (
+              <TouchableOpacity
+                style={[styles.previousReportRow, styles.yearReportRow]}
+                onPress={() => router.push({ pathname: '/yearly-report', params: { year: String(completedYears[0]) } })}
+              >
+                <Text style={[styles.previousReportMonth, { color: colors.accent }]}>
+                  {completedYears[0]} Year in Review
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.accent} />
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  };
 
   const renderTabs = () => (
     <View style={[styles.tabContainer, { backgroundColor: colors.wash }]}>
@@ -640,6 +773,7 @@ export default function Reports() {
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
       <View style={[styles.backgroundOrb, { backgroundColor: colors.accentSoft, opacity: isDark ? 0.2 : 0.6 }]} />
       <View style={[styles.backgroundOrbAlt, { backgroundColor: isDark ? colors.card : '#FDE7D3', opacity: isDark ? 0.1 : 0.7 }]} />
+      {renderReportEntry()}
       {renderTabs()}
       {activeTab === 'overview' && renderOverview()}
       {activeTab === 'yearly' && renderYearly()}
@@ -1057,5 +1191,74 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 30,
+  },
+  // Report Entry Section Styles
+  reportEntrySection: {
+    marginBottom: 20,
+    gap: 12,
+  },
+  reportCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  reportCardTeaser: {
+    // Inherits from reportCard
+  },
+  reportCardIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  reportCardContent: {
+    flex: 1,
+  },
+  reportCardTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  reportCardSubtitle: {
+    fontSize: 13,
+  },
+  previousReportsCard: {
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  previousReportsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 4,
+    marginBottom: 8,
+  },
+  previousReportsTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  previousReportRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.05)',
+  },
+  yearReportRow: {
+    marginTop: 4,
+  },
+  previousReportMonth: {
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
