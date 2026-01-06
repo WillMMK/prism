@@ -231,6 +231,21 @@ export class GoogleSheetsService {
     return data.files || [];
   }
 
+  async getCategoryNames(
+    spreadsheetId: string,
+    sheetName = 'Category Names'
+  ): Promise<string[]> {
+    const values = await this.fetchSheetData(spreadsheetId, sheetName, 'A1:A300');
+    if (!values.length) return [];
+    const headerRowIndex = findHeaderRowIndex(values);
+    const startIndex = headerRowIndex !== null ? headerRowIndex + 1 : 0;
+    const names = values
+      .slice(startIndex)
+      .map((row) => String(row[0] ?? '').trim())
+      .filter(Boolean);
+    return Array.from(new Set(names));
+  }
+
   // Get all sheets in a spreadsheet
   async getSpreadsheetInfo(spreadsheetId: string): Promise<SheetInfo[]> {
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`;
@@ -354,7 +369,8 @@ export class GoogleSheetsService {
     mapping: ColumnMapping,
     transaction: Transaction,
     columnCount: number,
-    formulaColumns: Set<number>
+    formulaColumns: Set<number>,
+    options?: { dateSample?: string; amountStyle?: 'signed' | 'positive' }
   ): (string | number)[] {
     const row = Array.from({ length: columnCount }, () => '');
     const signedAmount =
@@ -363,6 +379,8 @@ export class GoogleSheetsService {
         : transaction.type === 'expense'
           ? -transaction.amount
           : transaction.amount; // income and rebate are positive
+    const amountValue = options?.amountStyle === 'signed' ? signedAmount : transaction.amount;
+    const dateValue = this.formatDateForSheet(transaction.date, options?.dateSample);
 
     const safeSet = (index: number | null, value: string | number) => {
       if (index === null || index < 0) return;
@@ -371,9 +389,9 @@ export class GoogleSheetsService {
       row[index] = value;
     };
 
-    safeSet(mapping.dateColumn, transaction.date || new Date().toISOString().split('T')[0]);
+    safeSet(mapping.dateColumn, dateValue || new Date().toISOString().split('T')[0]);
     safeSet(mapping.descriptionColumn, transaction.description || '');
-    safeSet(mapping.amountColumn, signedAmount);
+    safeSet(mapping.amountColumn, amountValue);
     safeSet(mapping.categoryColumn, transaction.category || '');
 
     return row;
@@ -383,6 +401,9 @@ export class GoogleSheetsService {
     mapping: ColumnMapping;
     columnCount: number;
     formulaColumns: Set<number>;
+    headerRowIndex: number | null;
+    dateSample?: string;
+    amountStyle?: 'signed' | 'positive';
   }> {
     const sampleData = await this.fetchSheetData(spreadsheetId, sheetName, 'A1:Z20', {
       valueRenderOption: 'FORMULA',
@@ -403,6 +424,12 @@ export class GoogleSheetsService {
     const mapping = inferSheetSchema(headers, dataRows);
     const formulaColumns = new Set<number>();
     const sampleRow = dataRows.find(row => row.some(cell => String(cell ?? '').trim().length > 0)) || [];
+    const dateSample =
+      mapping.dateColumn !== null ? String(sampleRow[mapping.dateColumn] ?? '').trim() : '';
+    const amountSample =
+      mapping.amountColumn !== null ? String(sampleRow[mapping.amountColumn] ?? '').trim() : '';
+    const amountStyle: 'signed' | 'positive' =
+      /-\d|\(\d/.test(amountSample) ? 'signed' : 'positive';
 
     sampleRow.forEach((cell, index) => {
       const value = String(cell ?? '').trim();
@@ -415,7 +442,44 @@ export class GoogleSheetsService {
       mapping,
       columnCount: Math.max(1, maxColumns),
       formulaColumns,
+      headerRowIndex,
+      dateSample,
+      amountStyle,
     };
+  }
+
+  private formatDateForSheet(dateValue: string, sample?: string): string {
+    if (!dateValue) return '';
+    if (!sample) return dateValue;
+    const trimmed = sample.trim();
+    if (trimmed.includes('/')) {
+      const parsed = new Date(dateValue);
+      if (isNaN(parsed.getTime())) return dateValue;
+      const month = parsed.getMonth() + 1;
+      const day = parsed.getDate();
+      const year = parsed.getFullYear();
+      return `${month}/${day}/${year}`;
+    }
+    return dateValue;
+  }
+
+  private async findNextWriteRow(
+    spreadsheetId: string,
+    sheetName: string,
+    columnIndex: number,
+    headerRowIndex: number | null
+  ): Promise<number> {
+    const columnLetter = this.columnIndexToLetter(columnIndex);
+    const values = await this.fetchSheetData(spreadsheetId, sheetName, `${columnLetter}1:${columnLetter}`);
+    const startIndex = headerRowIndex !== null ? headerRowIndex + 1 : 0;
+    let lastRowIndex = headerRowIndex ?? -1;
+    for (let i = startIndex; i < values.length; i += 1) {
+      const cell = String(values[i]?.[0] ?? '').trim();
+      if (cell) {
+        lastRowIndex = i;
+      }
+    }
+    return lastRowIndex + 1;
   }
 
   private columnIndexToLetter(index: number): string {
@@ -748,31 +812,54 @@ export class GoogleSheetsService {
   ): Promise<WriteResult> {
     const writeMode = options?.writeMode ?? 'auto';
     if (writeMode !== 'transaction') {
-      const updated = await this.updateGridCell(spreadsheetId, sheetName, transaction);
-      if (updated) {
-        return { mode: 'grid', cellRef: updated.cellRef, rowIndex: updated.rowIndex };
-      }
-      if (writeMode === 'grid') {
-        throw new Error('Grid layout not detected for this sheet.');
+      try {
+        const updated = await this.updateGridCell(spreadsheetId, sheetName, transaction);
+        if (updated) {
+          return { mode: 'grid', cellRef: updated.cellRef, rowIndex: updated.rowIndex };
+        }
+        if (writeMode === 'grid') {
+          throw new Error('Grid layout not detected for this sheet.');
+        }
+      } catch (error) {
+        if (writeMode === 'grid') {
+          throw error;
+        }
+        const message = error instanceof Error ? error.message : '';
+        const shouldFallback = /category .*not found|grid layout not detected|date row not found|month row not found/i.test(message);
+        if (!shouldFallback) {
+          throw error;
+        }
       }
     }
 
-    const { mapping, columnCount, formulaColumns } = await this.getWriteSchema(spreadsheetId, sheetName);
+    const { mapping, columnCount, formulaColumns, headerRowIndex, dateSample, amountStyle } =
+      await this.getWriteSchema(spreadsheetId, sheetName);
 
     if (mapping.amountColumn === null && mapping.dateColumn === null && mapping.descriptionColumn === null) {
       throw new Error('Could not detect a column mapping for this sheet.');
     }
 
-    const row = this.buildAppendRow(mapping, transaction, columnCount, formulaColumns);
-    const range = `'${sheetName}'!A1`;
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}:append?` +
+    const row = this.buildAppendRow(mapping, transaction, columnCount, formulaColumns, {
+      dateSample,
+      amountStyle,
+    });
+    const fallbackColumn =
+      mapping.dateColumn ?? mapping.descriptionColumn ?? mapping.amountColumn ?? mapping.categoryColumn ?? 0;
+    const targetRowIndex = await this.findNextWriteRow(
+      spreadsheetId,
+      sheetName,
+      fallbackColumn,
+      headerRowIndex
+    );
+    const lastColumnLetter = this.columnIndexToLetter(columnCount - 1);
+    const range = `'${sheetName}'!A${targetRowIndex + 1}:${lastColumnLetter}${targetRowIndex + 1}`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?` +
       new URLSearchParams({
         valueInputOption: 'USER_ENTERED',
-        insertDataOption: 'INSERT_ROWS',
       }).toString();
 
     const response = await this.requestWithAuth(url, {
-      method: 'POST',
+      method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
       },
@@ -787,8 +874,8 @@ export class GoogleSheetsService {
       throw new Error(`Failed to append row: ${text || response.statusText}`);
     }
     const data = await response.json().catch(() => null);
-    const updatedRange = data?.updates?.updatedRange || data?.updatedRange;
-    const rowIndex = this.parseRowFromRange(updatedRange);
+    const updatedRange = data?.updatedRange || data?.updates?.updatedRange || range;
+    const rowIndex = this.parseRowFromRange(updatedRange) ?? targetRowIndex;
 
     return { mode: 'transaction', range: updatedRange, rowIndex };
   }
@@ -1048,7 +1135,7 @@ export const googleSheetsService = new GoogleSheetsService();
  * - Just the raw ID (44 char alphanumeric)
  */
 export function extractSpreadsheetId(input: string): string | null {
-  const trimmed = input.trim();
+  const trimmed = String(input ?? '').trim();
   if (!trimmed) return null;
 
   // Check if it's already just an ID (alphanumeric + dashes/underscores, ~44 chars)
@@ -1060,6 +1147,17 @@ export function extractSpreadsheetId(input: string): string | null {
   const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
   if (match && match[1]) {
     return match[1];
+  }
+
+  const looseMatch = trimmed.match(/\/d\/([a-zA-Z0-9_-]{20,})/);
+  if (looseMatch && looseMatch[1]) {
+    return looseMatch[1];
+  }
+
+  const parts = trimmed.split('/');
+  const partMatch = parts.find((part) => /^[a-zA-Z0-9_-]{20,}$/.test(part));
+  if (partMatch) {
+    return partMatch;
   }
 
   return null;

@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -76,7 +77,7 @@ const resolveTargetSheet = (
 
 export default function AddTransaction() {
   const router = useRouter();
-  const { transactions, addTransaction, sheetsConfig } = useBudgetStore();
+  const { transactions, addTransaction, sheetsConfig, categories: presetCategories } = useBudgetStore();
   const { showToast } = useToastStore();
   const [amount, setAmount] = useState('');
   const [amountParts, setAmountParts] = useState<number[]>([]);
@@ -85,11 +86,17 @@ export default function AddTransaction() {
   const [note, setNote] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const amountInputRef = useRef<TextInput>(null);
+  const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
 
-  const topCategories = useMemo(() => {
+  const categoryOptions = useMemo(() => {
     const counts = new Map<string, number>();
     // For rebates, show expense categories since rebates are credits against expenses
     const filterType = type === 'rebate' ? 'expense' : type;
+    presetCategories.forEach((cat) => {
+      if (cat.name) {
+        counts.set(cat.name, (counts.get(cat.name) || 0) + 1);
+      }
+    });
     transactions.forEach((tx) => {
       // Include both expense and rebate transactions for expense/rebate category list
       const txMatchType = tx.type === 'rebate' ? 'expense' : tx.type;
@@ -99,15 +106,15 @@ export default function AddTransaction() {
 
     return Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1])
-      .map(([name]) => name)
-      .slice(0, 5);
-  }, [transactions, type]);
+      .map(([name]) => name);
+  }, [transactions, type, presetCategories]);
+  const topCategoryOptions = categoryOptions.slice(0, 6);
 
   React.useEffect(() => {
-    if (!category && topCategories.length > 0) {
-      setCategory(topCategories[0]);
+    if (!category && categoryOptions.length > 0) {
+      setCategory(categoryOptions[0]);
     }
-  }, [category, topCategories]);
+  }, [category, categoryOptions]);
 
   const handleSave = async () => {
     const currentAmount = parseAmount(amount);
@@ -119,7 +126,7 @@ export default function AddTransaction() {
     }
 
     if (!finalCategory) {
-      Alert.alert('Category required', 'Pick a category from your imported sheet.');
+      Alert.alert('Category required', 'Enter or pick a category to continue.');
       return;
     }
 
@@ -294,16 +301,16 @@ export default function AddTransaction() {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Category</Text>
-            {topCategories.length === 0 ? (
+            {categoryOptions.length === 0 ? (
               <View style={styles.emptyCategoryCard}>
                 <Ionicons name="alert-circle-outline" size={18} color={palette.muted} />
                 <Text style={styles.emptyCategoryText}>
-                  Import transactions first to populate categories.
+                  No categories available yet.
                 </Text>
               </View>
             ) : (
               <View style={styles.chipRow}>
-                {topCategories.map((cat) => (
+                {topCategoryOptions.map((cat) => (
                   <TouchableOpacity
                     key={cat}
                     style={[styles.chip, category === cat && styles.chipActive]}
@@ -314,6 +321,15 @@ export default function AddTransaction() {
                     </Text>
                   </TouchableOpacity>
                 ))}
+                {categoryOptions.length > topCategoryOptions.length && (
+                  <TouchableOpacity
+                    style={styles.moreChip}
+                    onPress={() => setCategoryPickerOpen(true)}
+                  >
+                    <Ionicons name="ellipsis-horizontal" size={16} color={palette.ink} />
+                    <Text style={styles.moreChipText}>More</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
           </View>
@@ -344,15 +360,48 @@ export default function AddTransaction() {
           </View>
 
           <TouchableOpacity
-            style={[styles.saveButton, topCategories.length === 0 && styles.saveButtonDisabled]}
+            style={[styles.saveButton, !category.trim() && styles.saveButtonDisabled]}
             onPress={handleSave}
-            disabled={topCategories.length === 0}
+            disabled={!category.trim()}
           >
             <Text style={styles.saveText}>Save</Text>
             <Ionicons name="arrow-forward" size={18} color="#fff" />
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
+      <Modal
+        visible={categoryPickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setCategoryPickerOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Choose a category</Text>
+              <TouchableOpacity onPress={() => setCategoryPickerOpen(false)}>
+                <Ionicons name="close" size={20} color={palette.muted} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={styles.modalList}>
+              {categoryOptions.map((cat) => (
+                <TouchableOpacity
+                  key={`picker-${cat}`}
+                  style={[styles.modalRow, category === cat && styles.modalRowActive]}
+                  onPress={() => {
+                    setCategory(cat);
+                    setCategoryPickerOpen(false);
+                  }}
+                >
+                  <Text style={[styles.modalRowText, category === cat && styles.modalRowTextActive]}>
+                    {cat}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -576,6 +625,22 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: '#fff',
   },
+  moreChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.wash,
+  },
+  moreChipText: {
+    color: palette.ink,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   emptyCategoryCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -616,5 +681,50 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#fff',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: palette.card,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '75%',
+    padding: 16,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.border,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: palette.ink,
+  },
+  modalList: {
+    paddingVertical: 12,
+  },
+  modalRow: {
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+  modalRowActive: {
+    backgroundColor: palette.accentSoft,
+  },
+  modalRowText: {
+    color: palette.ink,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  modalRowTextActive: {
+    color: palette.accent,
+    fontWeight: '700',
   },
 });

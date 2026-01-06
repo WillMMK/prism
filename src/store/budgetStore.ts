@@ -24,6 +24,7 @@ interface BudgetState {
   setTransactions: (transactions: Transaction[], metadata?: Partial<ImportMetadata>) => void;
   addTransaction: (transaction: Transaction) => void;
   removeTransaction: (id: string) => void;
+  upsertCategories: (names: string[]) => void;
   setSheetsConfig: (config: Partial<GoogleSheetsConfig>) => void;
   setDemoConfig: (config: Partial<DemoConfig>) => void;
   setLoading: (loading: boolean) => void;
@@ -52,6 +53,7 @@ const defaultCategories: Category[] = [
   { id: '7', name: 'Income', color: '#4CAF50', icon: 'cash' },
   { id: '8', name: 'Other', color: '#607D8B', icon: 'ellipsis-horizontal' },
 ];
+const categoryColors = ['#0F766E', '#2F9E44', '#F2A15F', '#D64550', '#9966FF', '#36A2EB', '#FF6384', '#607D8B'];
 
 const getSignedAmount = (transaction: Transaction): number => {
   if (typeof transaction.signedAmount === 'number') {
@@ -121,6 +123,28 @@ export const useBudgetStore = create<BudgetState>()(
         set((state) => ({
           transactions: state.transactions.filter((t) => t.id !== id),
         })),
+
+      upsertCategories: (names) =>
+        set((state) => {
+          if (!names.length) return { categories: state.categories };
+          const existing = new Set(state.categories.map((cat) => cat.name.toLowerCase()));
+          const next = [...state.categories];
+          names.forEach((name) => {
+            const trimmed = name.trim();
+            if (!trimmed) return;
+            const key = trimmed.toLowerCase();
+            if (existing.has(key)) return;
+            existing.add(key);
+            const color = categoryColors[next.length % categoryColors.length];
+            next.push({
+              id: `cat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+              name: trimmed,
+              color,
+              icon: 'pricetag',
+            });
+          });
+          return { categories: next };
+        }),
 
       setSheetsConfig: (config) =>
         set((state) => ({

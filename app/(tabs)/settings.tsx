@@ -99,6 +99,7 @@ export default function Settings() {
     sheetsConfig,
     demoConfig,
     setDemoConfig,
+    upsertCategories,
   } = useBudgetStore();
   const { show: showLoadingOverlay, hide: hideLoadingOverlay } = useLoadingOverlay();
   const { showToast } = useToastStore();
@@ -282,6 +283,14 @@ export default function Settings() {
       });
       setSelectedGoogleSheets(sheetsConfig.selectedTabs || metadata.sheets.map((sheet) => sheet.title));
       setGoogleRowCounts({});
+      try {
+        const categoryNames = await googleSheetsService.getCategoryNames(spreadsheetId);
+        if (categoryNames.length > 0) {
+          upsertCategories(categoryNames);
+        }
+      } catch {
+        // Ignore missing category sheet
+      }
     } catch (error: any) {
       Alert.alert('Google Sheets', error.message || 'Failed to load spreadsheet.');
     } finally {
@@ -290,8 +299,8 @@ export default function Settings() {
   };
 
   const handleLoadFromUrl = async (overrideUrl?: string) => {
-    const candidateRaw = overrideUrl ?? sheetUrlInput ?? '';
-    const candidateUrl = (typeof candidateRaw === 'string' ? candidateRaw : String(candidateRaw)).trim();
+    const candidateRaw = typeof overrideUrl === 'string' ? overrideUrl : (sheetUrlInput ?? '');
+    const candidateUrl = String(candidateRaw).trim();
     const spreadsheetId = extractSpreadsheetId(candidateUrl);
     if (!spreadsheetId) {
       Alert.alert('Invalid URL', 'Please paste a valid Google Sheets URL or spreadsheet ID.');
@@ -309,6 +318,14 @@ export default function Settings() {
       });
       setSelectedGoogleSheets(metadata.sheets.map((sheet) => sheet.title));
       setGoogleRowCounts({});
+      try {
+        const categoryNames = await googleSheetsService.getCategoryNames(spreadsheetId);
+        if (categoryNames.length > 0) {
+          upsertCategories(categoryNames);
+        }
+      } catch {
+        // Ignore missing category sheet
+      }
       setSheetUrlInput('');
     } catch (error: any) {
       Alert.alert('Google Sheets', error.message || 'Failed to load spreadsheet. Make sure the URL is correct and you have access.');
