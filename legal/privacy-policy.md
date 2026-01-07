@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated: January 4, 2026**
+**Last updated: January 7, 2026**
 
 ## Overview
 
@@ -28,7 +28,11 @@ We request access to:
 - **Read** your Google Sheets (to import transactions)
 - **Write** to your Google Sheets (to sync new transactions)
 
-We only access spreadsheets you explicitly select. We never access other files in your Google Drive.
+We only access the spreadsheet you explicitly select. We do not access Google Drive or any other files.
+
+### 4. Subscription Information
+If you purchase Prism Plus, payments are processed by Apple. We receive subscription status and expiration information
+from Apple and RevenueCat to unlock premium features. We do not collect or store your payment card details.
 
 ## How We Use Your Information
 
@@ -43,12 +47,16 @@ We only access spreadsheets you explicitly select. We never access other files i
 - **Local storage only**: All your financial data is stored on your device
 - **No cloud sync**: We do not have servers that store your data
 - **Token storage**: Google authentication tokens are stored securely on your device
+- **Subscription status**: Stored locally to unlock premium features
 
 ## Data Sharing
 
 **We do NOT sell, rent, or share your personal information with third parties.**
 
-The only external service we connect to is Google (for authentication and Sheets access), which is governed by [Google's Privacy Policy](https://policies.google.com/privacy).
+We connect to:
+- **Google** (authentication and Google Sheets) — governed by [Google's Privacy Policy](https://policies.google.com/privacy)
+- **Apple App Store** (in-app purchases) — governed by [Apple's Privacy Policy](https://www.apple.com/legal/privacy/)
+- **RevenueCat shows purchase status** to the app — governed by [RevenueCat's Privacy Policy](https://www.revenuecat.com/privacy/)
 
 ## Your Rights
 
