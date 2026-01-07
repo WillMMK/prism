@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, View } from 'react-native';
+import { Animated, StyleSheet, View, ViewStyle } from 'react-native';
 import Svg, { Polygon, Line, Defs, LinearGradient, Stop, Path } from 'react-native-svg';
 
 const AnimatedLine = Animated.createAnimatedComponent(Line);
@@ -8,6 +8,9 @@ const AnimatedPath = Animated.createAnimatedComponent(Path);
 interface PrismLoaderProps {
   size?: number;
   isLoading?: boolean;
+  showPrism?: boolean;
+  showGlow?: boolean;
+  style?: ViewStyle;
 }
 
 const RAINBOW_COLORS = [
@@ -19,7 +22,13 @@ const RAINBOW_COLORS = [
   '#9B59B6', // Indigo/Violet
 ];
 
-export const PrismLoader = ({ size = 80, isLoading = true }: PrismLoaderProps) => {
+export const PrismLoader = ({
+  size = 80,
+  isLoading = true,
+  showPrism = true,
+  showGlow = true,
+  style,
+}: PrismLoaderProps) => {
   const beamProgress = useRef(new Animated.Value(0)).current;
   const glowOpacity = useRef(new Animated.Value(0.3)).current;
 
@@ -92,7 +101,7 @@ export const PrismLoader = ({ size = 80, isLoading = true }: PrismLoaderProps) =
   };
 
   return (
-    <View style={[styles.container, { width: size, height: size * 0.75 }]}>
+    <View style={[styles.container, { width: size, height: size * 0.75 }, style]}>
       <Svg
         width={size}
         height={size * 0.75}
@@ -139,32 +148,35 @@ export const PrismLoader = ({ size = 80, isLoading = true }: PrismLoaderProps) =
           );
         })}
 
-        {/* Prism body */}
-        <Polygon
-          points={prismPoints}
-          fill="url(#prismGradient)"
-          stroke="#80CBC4"
-          strokeWidth={1.5}
-        />
-
-        {/* Prism highlight */}
-        <Path
-          d="M 38,47 L 50,16 L 52,16 L 40,47 Z"
-          fill="#FFFFFF"
-          opacity={0.4}
-        />
+        {showPrism && (
+          <>
+            <Polygon
+              points={prismPoints}
+              fill="url(#prismGradient)"
+              stroke="#80CBC4"
+              strokeWidth={1.5}
+            />
+            <Path
+              d="M 38,47 L 50,16 L 52,16 L 40,47 Z"
+              fill="#FFFFFF"
+              opacity={0.4}
+            />
+          </>
+        )}
       </Svg>
 
       {/* Animated glow effect */}
-      <Animated.View
-        style={[
-          styles.glow,
-          {
-            opacity: glowOpacity,
-            transform: [{ scale }],
-          },
-        ]}
-      />
+      {showGlow && (
+        <Animated.View
+          style={[
+            styles.glow,
+            {
+              opacity: glowOpacity,
+              transform: [{ scale }],
+            },
+          ]}
+        />
+      )}
     </View>
   );
 };

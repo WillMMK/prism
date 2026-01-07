@@ -19,10 +19,16 @@ export default function TabsLayout() {
   const sheetsConfig = useBudgetStore((state) => state.sheetsConfig);
   const hasConnectedSheet = Boolean(sheetsConfig.isConnected || sheetsConfig.spreadsheetId);
 
+  // Clipboard detection for Google Sheets URLs
+  // Only enabled AFTER Google is connected but BEFORE a sheet is linked
+  // This helps users who have authorized but still need to paste their sheet URL
+  const isGoogleConnectedNoSheet = sheetsConfig.isConnected && !sheetsConfig.spreadsheetId;
+
   React.useEffect(() => {
     let isMounted = true;
     const checkClipboard = async () => {
-      if (!isMounted || isOnSettings || hasConnectedSheet) return;
+      // Only show smart paste when Google is connected but no sheet is set yet
+      if (!isMounted || isOnSettings || !isGoogleConnectedNoSheet) return;
       const clipboardText = (await Clipboard.getStringAsync()).trim();
       if (!clipboardText || clipboardText === lastClipboardRef.current) return;
       lastClipboardRef.current = clipboardText;
@@ -58,7 +64,7 @@ export default function TabsLayout() {
       isMounted = false;
       subscription.remove();
     };
-  }, [router, isOnSettings]);
+  }, [router, isOnSettings, isGoogleConnectedNoSheet]);
 
   React.useEffect(() => {
     const tryFlush = () => {

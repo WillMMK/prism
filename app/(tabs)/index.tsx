@@ -195,7 +195,7 @@ export default function Dashboard() {
     },
   });
 
-  // Auto-navigate first-time users to Settings
+  // Auto-navigate first-time users to onboarding
   const hasNavigatedRef = React.useRef(false);
   React.useEffect(() => {
     const isFirstTimeUser = transactions.length === 0 && !sheetsConfig.isConnected;
@@ -203,7 +203,7 @@ export default function Dashboard() {
       hasNavigatedRef.current = true;
       // Small delay to ensure navigation stack is ready
       setTimeout(() => {
-        router.push('/settings');
+        router.push('/onboarding');
       }, 100);
     }
   }, [transactions.length, sheetsConfig.isConnected, router]);

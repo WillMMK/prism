@@ -33,6 +33,7 @@ function AuthenticatedLayout() {
         <Stack.Screen name="monthly-report" options={{ headerShown: false }} />
         <Stack.Screen name="yearly-report" options={{ headerShown: false }} />
         <Stack.Screen name="paywall" options={{ presentation: 'modal', headerShown: false }} />
+        <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
       </Stack>
       <Toast />
       <LoadingOverlay />

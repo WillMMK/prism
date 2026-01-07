@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": false,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/prism-nobackground.png",
       "resizeMode": "contain",
       "backgroundColor": "#1a1a2e"
     },
