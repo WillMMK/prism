@@ -987,7 +987,8 @@ export default function Settings() {
               </TouchableOpacity>
               {tabsExpanded && googleSheets.length > 0 && (
                 <Text style={styles.tabGuidance}>
-                  Select the tabs with your budget data, then tap Import below.
+                  Prism works best with simple transaction lists (date, amount, category).{'\n'}
+                  Complex layouts or formulas may not import correctly.
                 </Text>
               )}
               {tabsExpanded && googleSheets.map((sheet) => (

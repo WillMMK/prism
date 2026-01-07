@@ -108,7 +108,15 @@ export default function AddTransaction() {
       .sort((a, b) => b[1] - a[1])
       .map(([name]) => name);
   }, [transactions, type, presetCategories]);
-  const topCategoryOptions = categoryOptions.slice(0, 6);
+
+  // Show top 6 categories + always include the currently selected one if not in top 6
+  const topCategoryOptions = useMemo(() => {
+    const top6 = categoryOptions.slice(0, 6);
+    if (category && !top6.includes(category) && categoryOptions.includes(category)) {
+      return [...top6.slice(0, 5), category]; // Replace 6th with selected
+    }
+    return top6;
+  }, [categoryOptions, category]);
 
   React.useEffect(() => {
     if (!category && categoryOptions.length > 0) {

@@ -134,6 +134,26 @@ export interface DataBlock {
   headers: string[];
 }
 
+// Confidence scoring for parse quality
+export type ConfidenceLevel = 'high' | 'medium' | 'low';
+
+export interface ConfidenceIssue {
+  type: 'missing_date' | 'missing_amount' | 'ambiguous_dates' | 'ambiguous_amounts' | 'mixed_signs' | 'unsupported_layout';
+  message: string;
+  severity: 'warning' | 'error';
+}
+
+export interface ParseConfidence {
+  level: ConfidenceLevel;
+  score: number;           // 0-100
+  issues: ConfidenceIssue[];
+}
+
+export interface ParseResult {
+  transactions: Transaction[];
+  confidence: ParseConfidence;
+}
+
 // Common expense category keywords
 const EXPENSE_KEYWORDS = [
   'transport', 'transportation', 'travel', 'fuel', 'gas', 'petrol',
@@ -242,6 +262,7 @@ function detectSheetTypeFromName(sheetName: string): 'expense' | 'income' | null
 
 // Detect sheet type from column headers and data
 // Checks which aggregate column (Expense/Income) actually has data
+// Only applies to sheets with BOTH aggregate columns - otherwise let per-cell detection work
 function detectSheetTypeFromHeadersAndData(headers: string[], rows: string[][]): 'expense' | 'income' | null {
   const lowerHeaders = headers.map(h => h.toLowerCase().trim());
   const parseCellAmount = (value: string): number => {
@@ -260,17 +281,10 @@ function detectSheetTypeFromHeadersAndData(headers: string[], rows: string[][]):
     h === 'income' || h === 'total income'
   );
 
-  // If neither column exists, can't determine
-  if (expenseColIdx === -1 && incomeColIdx === -1) {
+  // If EITHER column is missing, can't determine sheet type from aggregates
+  // This means it's likely a combined sheet - let per-cell sign detection handle it
+  if (expenseColIdx === -1 || incomeColIdx === -1) {
     return null;
-  }
-
-  // If only one exists, use that
-  if (expenseColIdx >= 0 && incomeColIdx === -1) {
-    return 'expense';
-  }
-  if (incomeColIdx >= 0 && expenseColIdx === -1) {
-    return 'income';
   }
 
   // Both columns exist - check which one has actual data
@@ -279,32 +293,28 @@ function detectSheetTypeFromHeadersAndData(headers: string[], rows: string[][]):
   const sampleRows = rows.slice(0, 20); // Check first 20 data rows
 
   for (const row of sampleRows) {
-    if (expenseColIdx >= 0 && row[expenseColIdx]) {
+    if (row[expenseColIdx]) {
       expenseSum += Math.abs(parseCellAmount(row[expenseColIdx]));
     }
-    if (incomeColIdx >= 0 && row[incomeColIdx]) {
+    if (row[incomeColIdx]) {
       incomeSum += Math.abs(parseCellAmount(row[incomeColIdx]));
     }
   }
 
-  // If only expense column has data → expense sheet
+  // Only use this detection if ONE aggregate column has data and the other is empty/zero
+  // This indicates separate expense/income sheets, not a combined summary
+
+  // If only expense column has meaningful data → expense sheet
   if (expenseSum > 0 && incomeSum === 0) {
     return 'expense';
   }
-  // If only income column has data → income sheet
+  // If only income column has meaningful data → income sheet
   if (incomeSum > 0 && expenseSum === 0) {
     return 'income';
   }
-  // If expense column has significantly more data → expense sheet
-  if (expenseSum > incomeSum * 5) {
-    return 'expense';
-  }
-  // If income column has significantly more data → income sheet
-  if (incomeSum > expenseSum * 5) {
-    return 'income';
-  }
 
-  // Can't determine - both have similar amounts of data
+  // Both have data (even if unequal) - this is likely a combined sheet
+  // Let per-cell sign detection handle the category columns
   return null;
 }
 
@@ -314,6 +324,17 @@ class XLSXParserService {
     if (!match) return null;
     const year = parseInt(match[1], 10);
     return Number.isNaN(year) ? null : year;
+  }
+
+  // Detect sheet type from name and headers (for summary/transaction formats)
+  private detectSheetType(sheet: SheetData): 'expense' | 'income' | null {
+    // Try name-based detection first
+    const nameType = detectSheetTypeFromName(sheet.name);
+    if (nameType) return nameType;
+
+    // Try header-based detection (only applies if BOTH aggregate columns exist)
+    const headerType = detectSheetTypeFromHeadersAndData(sheet.headers, sheet.rows);
+    return headerType;
   }
 
   // Pattern to skip non-data sheets
@@ -777,10 +798,10 @@ class XLSXParserService {
   }
 
   // Parse mixed format sheet - only import detail rows
+  // Simplified type detection: header keyword first, then sign
   parseMixedSheet(
     sheet: SheetData,
-    analysis: MixedSheetAnalysis,
-    sheetTypeOverride?: 'expense' | 'income' | null
+    analysis: MixedSheetAnalysis
   ): Transaction[] {
     const transactions: Transaction[] = [];
 
@@ -794,13 +815,8 @@ class XLSXParserService {
         const value = this.parseAmount(row[col.index]);
         if (value === 0) continue; // Skip empty cells
 
-        // Use sheet name override if available, otherwise fall back to sign-based detection
-        let type: 'expense' | 'income';
-        if (sheetTypeOverride) {
-          type = sheetTypeOverride;
-        } else {
-          type = value < 0 ? 'expense' : 'income';
-        }
+        // Determine type: header keyword first, then sign
+        const type = this.determineTypeForColumn(col.name, value);
 
         transactions.push({
           id: `xlsx_${rowIndex}_${col.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -815,6 +831,21 @@ class XLSXParserService {
     }
 
     return transactions;
+  }
+
+  // Determine expense/income type for a column
+  // Priority: 1) Header keyword, 2) Value sign
+  private determineTypeForColumn(columnName: string, value: number): 'expense' | 'income' {
+    // Check if column name matches expense keywords
+    if (this.isExpenseCategory(columnName)) {
+      return 'expense';
+    }
+    // Check if column name matches income keywords
+    if (this.isIncomeCategory(columnName)) {
+      return 'income';
+    }
+    // Unknown category - use sign (negative = expense, positive = income)
+    return value < 0 ? 'expense' : 'income';
   }
 
   // Parse date from first column (handles various formats)
@@ -1364,12 +1395,17 @@ class XLSXParserService {
     return parseFloat(cleaned) || 0;
   }
 
+  // Parse transaction log format
+  // Pre-scan approach: detect which column to use for type detection
   parseTransactions(
     sheetData: SheetData,
     mapping: ColumnMapping,
-    sheetTypeOverride?: 'expense' | 'income' | null,
+    _sheetTypeOverride?: 'expense' | 'income' | null,
     yearOverride?: number | null
   ): Transaction[] {
+    // Pre-scan: Determine how to detect type
+    const typeStrategy = this.detectTypeStrategy(sheetData.rows, mapping);
+
     return sheetData.rows.map((row, index) => {
       const dateVal = mapping.dateColumn !== null ? row[mapping.dateColumn] : '';
       const descVal = mapping.descriptionColumn !== null ? row[mapping.descriptionColumn] : '';
@@ -1385,15 +1421,33 @@ class XLSXParserService {
         type = 'expense';
       } else {
         signedAmount = parseFloat(cleanedAmount) || 0;
-        const categoryType = resolveTypeFromCategory(categoryVal);
-        if (categoryType) {
-          type = categoryType;
-        } else if (sheetTypeOverride) {
-          type = sheetTypeOverride;
+
+        // Apply the detected strategy
+        if (typeStrategy === 'category-value') {
+          // Category column has "Income" / "Expense" values
+          const categoryType = resolveTypeFromCategory(categoryVal);
+          type = categoryType || 'expense';
+        } else if (typeStrategy === 'category-keyword') {
+          // Category column has keywords like "Groceries", "Salary"
+          if (this.isExpenseCategory(categoryVal)) {
+            type = 'expense';
+          } else if (this.isIncomeCategory(categoryVal)) {
+            type = 'income';
+          } else {
+            type = signedAmount < 0 ? 'expense' : 'income';
+          }
+        } else if (typeStrategy === 'description-keyword') {
+          // Description column has keywords
+          if (this.isExpenseCategory(descVal)) {
+            type = 'expense';
+          } else if (this.isIncomeCategory(descVal)) {
+            type = 'income';
+          } else {
+            type = signedAmount < 0 ? 'expense' : 'income';
+          }
         } else {
-          // For transaction-log format: positive amounts = expense (typical budget behavior)
-          // Negative amounts = income/refund
-          type = signedAmount >= 0 ? 'expense' : 'income';
+          // No reliable column - use sign only
+          type = signedAmount < 0 ? 'expense' : 'income';
         }
       }
 
@@ -1413,6 +1467,48 @@ class XLSXParserService {
     }).filter(tx => tx.amount !== 0);
   }
 
+  // Pre-scan data to detect how to infer type
+  private detectTypeStrategy(
+    rows: string[][],
+    mapping: ColumnMapping
+  ): 'category-value' | 'category-keyword' | 'description-keyword' | 'sign-only' {
+    const sampleSize = Math.min(20, rows.length);
+    let categoryValueMatches = 0;
+    let categoryKeywordMatches = 0;
+    let descKeywordMatches = 0;
+
+    for (let i = 0; i < sampleSize; i++) {
+      const row = rows[i];
+      const categoryVal = mapping.categoryColumn !== null ? row[mapping.categoryColumn] || '' : '';
+      const descVal = mapping.descriptionColumn !== null ? row[mapping.descriptionColumn] || '' : '';
+
+      // Check if category has "Income" or "Expense" type values
+      if (resolveTypeFromCategory(categoryVal)) {
+        categoryValueMatches++;
+      }
+      // Check if category has expense/income keywords
+      if (this.isExpenseCategory(categoryVal) || this.isIncomeCategory(categoryVal)) {
+        categoryKeywordMatches++;
+      }
+      // Check if description has expense/income keywords
+      if (this.isExpenseCategory(descVal) || this.isIncomeCategory(descVal)) {
+        descKeywordMatches++;
+      }
+    }
+
+    // Decide strategy based on what we found
+    if (categoryValueMatches >= sampleSize * 0.5) {
+      return 'category-value'; // Most rows have "Income"/"Expense" in category
+    }
+    if (categoryKeywordMatches >= sampleSize * 0.3) {
+      return 'category-keyword'; // Category has keywords like "Groceries"
+    }
+    if (descKeywordMatches >= sampleSize * 0.3) {
+      return 'description-keyword'; // Description has keywords
+    }
+    return 'sign-only'; // Fall back to sign
+  }
+
   // Main method to parse all selected sheets
   parseAllSheets(parsedFile: ParsedFile, selectedSheets: string[]): Transaction[] {
     const allTransactions: Transaction[] = [];
@@ -1421,45 +1517,25 @@ class XLSXParserService {
       if (selectedSheets.includes(sheet.name)) {
         let transactions: Transaction[] = [];
         const yearOverride = this.getSheetYear(sheet.name);
-
-        // Detect sheet type: prefer data-based detection when headers include both aggregates
-        const sheetTypeFromName = detectSheetTypeFromName(sheet.name);
-        let sheetType = sheetTypeFromName;
-        const headerBasedType = detectSheetTypeFromHeadersAndData(sheet.headers, sheet.rows);
-        const hasBothAggregates = hasExpenseIncomeAggregateColumns(sheet.headers);
-
-        if (headerBasedType) {
-          sheetType = headerBasedType;
-        } else if (hasBothAggregates && !sheetTypeFromName) {
-          sheetType = null;
-        }
-
-        // Re-analyze each sheet individually
         const format = this.detectFormat(sheet);
 
         if (format === 'mixed') {
+          // Mixed format uses per-column type detection (header keywords + sign)
           const analysis = this.analyzeMixedSheet(sheet);
 
-          // Use analysis.sheetType as final fallback if still no type detected
-          const finalSheetType = sheetType || analysis.sheetType;
-
-          // If we have detail rows, import only those (avoid double counting)
           if (analysis.detailRowIndices.length > 0) {
-            transactions = this.parseMixedSheet(sheet, analysis, finalSheetType !== 'mixed' ? finalSheetType : null);
+            transactions = this.parseMixedSheet(sheet, analysis);
           } else if (analysis.summaryRowIndices.length > 0) {
-            // No detail rows - this is a pure monthly summary sheet
-            // Import the summary rows as monthly data
-            transactions = this.parseMixedSummaryOnly(
-              sheet,
-              analysis,
-              finalSheetType !== 'mixed' ? finalSheetType : null,
-              yearOverride
-            );
+            transactions = this.parseMixedSummaryOnly(sheet, analysis, yearOverride);
           }
         } else if (format === 'summary') {
+          // Summary format - try to detect sheet type for column grouping
+          const sheetType = this.detectSheetType(sheet);
           const mapping = this.inferSummaryMapping(sheet.headers, sheet.rows);
           transactions = this.parseSummaryTransactions(sheet, mapping, sheetType, yearOverride);
         } else {
+          // Transaction log format
+          const sheetType = this.detectSheetType(sheet);
           const mapping = inferSheetSchema(sheet.headers, sheet.rows);
           transactions = this.parseTransactions(sheet, mapping, sheetType, yearOverride);
         }
@@ -1472,10 +1548,10 @@ class XLSXParserService {
   }
 
   // Parse mixed format sheet with only summary rows (no daily details)
+  // Simplified type detection: header keyword first, then sign
   private parseMixedSummaryOnly(
     sheet: SheetData,
     analysis: MixedSheetAnalysis,
-    sheetTypeOverride?: 'expense' | 'income' | null,
     yearOverride?: number | null
   ): Transaction[] {
     const transactions: Transaction[] = [];
@@ -1490,13 +1566,8 @@ class XLSXParserService {
         const value = this.parseAmount(row[col.index]);
         if (value === 0) continue;
 
-        // Use sheet name override if available, otherwise fall back to sign-based detection
-        let type: 'expense' | 'income';
-        if (sheetTypeOverride) {
-          type = sheetTypeOverride;
-        } else {
-          type = value < 0 ? 'expense' : 'income';
-        }
+        // Determine type: header keyword first, then sign
+        const type = this.determineTypeForColumn(col.name, value);
 
         transactions.push({
           id: `xlsx_sum_${rowIndex}_${col.index}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -1511,6 +1582,130 @@ class XLSXParserService {
     }
 
     return transactions;
+  }
+
+  // Calculate confidence score for a parsed result
+  private calculateConfidence(
+    parsedFile: ParsedFile,
+    selectedSheets: string[],
+    transactions: Transaction[]
+  ): ParseConfidence {
+    const issues: ConfidenceIssue[] = [];
+    let score = 0;
+
+    // Get the primary sheet for analysis
+    const primarySheet = parsedFile.sheets.find(s => selectedSheets.includes(s.name));
+    if (!primarySheet) {
+      return { level: 'low', score: 0, issues: [{ type: 'unsupported_layout', message: 'No sheets selected', severity: 'error' }] };
+    }
+
+    const format = parsedFile.detectedFormat;
+    const mapping = parsedFile.inferredMapping;
+
+    // For transaction log format, check column detection
+    if (format === 'transaction') {
+      // Date column found: +25
+      if (mapping.dateColumn !== null) {
+        score += 25;
+      } else {
+        issues.push({ type: 'missing_date', message: 'Date column not detected', severity: 'error' });
+      }
+
+      // Amount column found: +25
+      if (mapping.amountColumn !== null) {
+        score += 25;
+      } else {
+        issues.push({ type: 'missing_amount', message: 'Amount column not detected', severity: 'error' });
+      }
+
+      // Description or category found: +15
+      if (mapping.descriptionColumn !== null || mapping.categoryColumn !== null) {
+        score += 15;
+      }
+    } else {
+      // For summary/mixed formats, assume date and amounts are handled differently
+      score += 40; // Base score for detecting complex format
+    }
+
+    // Check date quality
+    if (transactions.length > 0) {
+      const dateSet = new Set<string>();
+      let invalidDates = 0;
+      let ambiguousDates = 0;
+
+      for (const tx of transactions.slice(0, 50)) {
+        const date = tx.date;
+        if (!date || date === new Date().toISOString().split('T')[0]) {
+          invalidDates++;
+        } else {
+          dateSet.add(date);
+        }
+        // Check for ambiguous date pattern (could be DD/MM or MM/DD)
+        const match = date?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (match) {
+          const month = parseInt(match[2], 10);
+          const day = parseInt(match[3], 10);
+          if (month <= 12 && day <= 12 && month !== day) {
+            ambiguousDates++;
+          }
+        }
+      }
+
+      // All dates parseable: +15
+      if (invalidDates === 0) {
+        score += 15;
+      } else if (invalidDates > transactions.length * 0.3) {
+        issues.push({ type: 'ambiguous_dates', message: `${invalidDates} transactions have unclear dates`, severity: 'warning' });
+      }
+
+      // Unambiguous date format: +10
+      if (ambiguousDates < transactions.length * 0.5) {
+        score += 10;
+      } else {
+        issues.push({ type: 'ambiguous_dates', message: 'Date format may be ambiguous (DD/MM vs MM/DD)', severity: 'warning' });
+      }
+    }
+
+    // Check amount sign consistency: +10
+    if (transactions.length > 0) {
+      const positiveExpenses = transactions.filter(tx => tx.type === 'expense' && (tx.signedAmount ?? 0) > 0).length;
+      const negativeIncome = transactions.filter(tx => tx.type === 'income' && (tx.signedAmount ?? 0) < 0).length;
+      const inconsistentSigns = positiveExpenses + negativeIncome;
+
+      if (inconsistentSigns < transactions.length * 0.1) {
+        score += 10;
+      } else {
+        issues.push({
+          type: 'mixed_signs',
+          message: `${inconsistentSigns} transactions have unusual amount signs`,
+          severity: 'warning'
+        });
+      }
+    }
+
+    // Determine level based on score
+    let level: ConfidenceLevel;
+    if (score >= 70) {
+      level = 'high';
+    } else if (score >= 40) {
+      level = 'medium';
+    } else {
+      level = 'low';
+    }
+
+    // Downgrade to low if we have any error-severity issues
+    if (issues.some(i => i.severity === 'error')) {
+      level = 'low';
+    }
+
+    return { level, score, issues };
+  }
+
+  // Main method to parse all selected sheets WITH confidence scoring
+  parseAllSheetsWithConfidence(parsedFile: ParsedFile, selectedSheets: string[]): ParseResult {
+    const transactions = this.parseAllSheets(parsedFile, selectedSheets);
+    const confidence = this.calculateConfidence(parsedFile, selectedSheets, transactions);
+    return { transactions, confidence };
   }
 }
 

@@ -3,7 +3,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 import type * as SecureStoreType from 'expo-secure-store';
 import { Transaction } from '../types/budget';
-import { xlsxParser, SheetData, ParsedFile } from './xlsxParser';
+import { xlsxParser, SheetData, ParsedFile, ParseResult } from './xlsxParser';
 import {
   findHeaderRowIndex,
   getRowMetrics,
@@ -370,7 +370,11 @@ export class GoogleSheetsService {
     transaction: Transaction,
     columnCount: number,
     formulaColumns: Set<number>,
-    options?: { dateSample?: string; amountStyle?: 'signed' | 'positive' }
+    options?: {
+      dateSample?: string;
+      amountStyle?: 'signed' | 'positive';
+      categoryStyle?: 'type' | 'category';
+    }
   ): (string | number)[] {
     const row = Array.from({ length: columnCount }, () => '');
     const signedAmount =
@@ -390,9 +394,20 @@ export class GoogleSheetsService {
     };
 
     safeSet(mapping.dateColumn, dateValue || new Date().toISOString().split('T')[0]);
-    safeSet(mapping.descriptionColumn, transaction.description || '');
     safeSet(mapping.amountColumn, amountValue);
-    safeSet(mapping.categoryColumn, transaction.category || '');
+
+    // Handle category based on sheet style
+    if (options?.categoryStyle === 'type') {
+      // Sheet uses Income/Expense format: put type in category, category in description
+      // Ignore user description - like grid format, category IS the description
+      const typeValue = transaction.type === 'expense' ? 'Expense' : 'Income';
+      safeSet(mapping.categoryColumn, typeValue);
+      safeSet(mapping.descriptionColumn, transaction.category || '');
+    } else {
+      // Sheet uses actual categories: put category in category column
+      safeSet(mapping.descriptionColumn, transaction.description || '');
+      safeSet(mapping.categoryColumn, transaction.category || '');
+    }
 
     return row;
   }
@@ -404,9 +419,15 @@ export class GoogleSheetsService {
     headerRowIndex: number | null;
     dateSample?: string;
     amountStyle?: 'signed' | 'positive';
+    categoryStyle?: 'type' | 'category'; // 'type' = Income/Expense, 'category' = actual categories
   }> {
+    // Fetch with FORMULA to detect formula columns
     const sampleData = await this.fetchSheetData(spreadsheetId, sheetName, 'A1:Z20', {
       valueRenderOption: 'FORMULA',
+    });
+    // Also fetch with FORMATTED_VALUE to get actual date format
+    const formattedData = await this.fetchSheetData(spreadsheetId, sheetName, 'A1:Z20', {
+      valueRenderOption: 'FORMATTED_VALUE',
     });
     const headerRowIndex = findHeaderRowIndex(sampleData);
     const hasHeader = headerRowIndex !== null;
@@ -421,15 +442,36 @@ export class GoogleSheetsService {
       ? headerRow
       : Array.from({ length: maxColumns }, () => '');
     const dataRows = sampleData.slice(hasHeader ? headerRowIndex + 1 : 0);
+    const formattedDataRows = formattedData.slice(hasHeader ? headerRowIndex + 1 : 0);
     const mapping = inferSheetSchema(headers, dataRows);
     const formulaColumns = new Set<number>();
     const sampleRow = dataRows.find(row => row.some(cell => String(cell ?? '').trim().length > 0)) || [];
+    const sampleRowIndex = dataRows.findIndex(row => row.some(cell => String(cell ?? '').trim().length > 0));
+    const formattedSampleRow = formattedDataRows[sampleRowIndex] || [];
+    // Use formatted value for date sample to get actual display format (not Excel serial)
     const dateSample =
-      mapping.dateColumn !== null ? String(sampleRow[mapping.dateColumn] ?? '').trim() : '';
+      mapping.dateColumn !== null ? String(formattedSampleRow[mapping.dateColumn] ?? '').trim() : '';
     const amountSample =
       mapping.amountColumn !== null ? String(sampleRow[mapping.amountColumn] ?? '').trim() : '';
     const amountStyle: 'signed' | 'positive' =
       /-\d|\(\d/.test(amountSample) ? 'signed' : 'positive';
+
+    // Detect category style by scanning existing category values
+    let categoryStyle: 'type' | 'category' = 'category';
+    if (mapping.categoryColumn !== null) {
+      let typeMatchCount = 0;
+      const samplesToCheck = dataRows.slice(0, 10);
+      for (const row of samplesToCheck) {
+        const val = String(row[mapping.categoryColumn] ?? '').toLowerCase().trim();
+        if (val === 'income' || val === 'expense' || val === 'expenses') {
+          typeMatchCount++;
+        }
+      }
+      // If majority of rows have Income/Expense, it's 'type' style
+      if (typeMatchCount >= samplesToCheck.length * 0.5) {
+        categoryStyle = 'type';
+      }
+    }
 
     sampleRow.forEach((cell, index) => {
       const value = String(cell ?? '').trim();
@@ -445,6 +487,7 @@ export class GoogleSheetsService {
       headerRowIndex,
       dateSample,
       amountStyle,
+      categoryStyle,
     };
   }
 
@@ -452,14 +495,54 @@ export class GoogleSheetsService {
     if (!dateValue) return '';
     if (!sample) return dateValue;
     const trimmed = sample.trim();
+
+    const parsed = new Date(dateValue);
+    if (isNaN(parsed.getTime())) return dateValue;
+    const month = parsed.getMonth() + 1;
+    const day = parsed.getDate();
+    const year = parsed.getFullYear();
+
+    console.log('[formatDateForSheet] Input:', dateValue, 'Sample:', sample, 'Trimmed:', trimmed);
+
+    // Handle slash format (D/M/YYYY or M/D/YYYY)
     if (trimmed.includes('/')) {
-      const parsed = new Date(dateValue);
-      if (isNaN(parsed.getTime())) return dateValue;
-      const month = parsed.getMonth() + 1;
-      const day = parsed.getDate();
-      const year = parsed.getFullYear();
-      return `${month}/${day}/${year}`;
+      const sampleParts = trimmed.split('/');
+      const firstNum = parseInt(sampleParts[0], 10);
+      const secondNum = parseInt(sampleParts[1], 10);
+
+      // If first number > 12, it's definitely DD/MM
+      // If second number > 12, it's definitely MM/DD
+      // If ambiguous, check if first > second (DD/MM common pattern)
+      const isDayFirst = firstNum > 12 || (firstNum <= 12 && secondNum <= 12 && firstNum > secondNum);
+
+      if (isDayFirst) {
+        return `${day}/${month}/${year}`; // DD/MM/YYYY
+      } else {
+        return `${month}/${day}/${year}`; // MM/DD/YYYY
+      }
     }
+
+    // Handle long weekday format like "Wednesday, September 10, 2025"
+    if (/[A-Za-z]+,\s+[A-Za-z]+\s+\d+,\s+\d{4}/.test(trimmed)) {
+      const months = ['January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'];
+      const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const weekday = weekdays[parsed.getDay()];
+      const monthName = months[parsed.getMonth()];
+      return `${weekday}, ${monthName} ${day}, ${year}`;
+    }
+
+    // Handle dash format (YYYY-MM-DD or DD-MM-YYYY)
+    if (trimmed.includes('-')) {
+      const sampleParts = trimmed.split('-');
+      // If first part is 4 digits, it's YYYY-MM-DD (ISO)
+      if (sampleParts[0].length === 4) {
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+      // Otherwise assume DD-MM-YYYY
+      return `${day}-${month}-${year}`;
+    }
+
     return dateValue;
   }
 
@@ -842,7 +925,7 @@ export class GoogleSheetsService {
       }
     }
 
-    const { mapping, columnCount, formulaColumns, headerRowIndex, dateSample, amountStyle } =
+    const { mapping, columnCount, formulaColumns, headerRowIndex, dateSample, amountStyle, categoryStyle } =
       await this.getWriteSchema(spreadsheetId, sheetName);
 
     if (mapping.amountColumn === null && mapping.dateColumn === null && mapping.descriptionColumn === null) {
@@ -852,6 +935,7 @@ export class GoogleSheetsService {
     const row = this.buildAppendRow(mapping, transaction, columnCount, formulaColumns, {
       dateSample,
       amountStyle,
+      categoryStyle,
     });
     const fallbackColumn =
       mapping.dateColumn ?? mapping.descriptionColumn ?? mapping.amountColumn ?? mapping.categoryColumn ?? 0;
@@ -1131,6 +1215,93 @@ export class GoogleSheetsService {
     }
 
     return transactions;
+  }
+
+  // Import all data from multiple sheets WITH confidence scoring
+  async importAllSheetsWithConfidence(
+    spreadsheetId: string,
+    sheetNames: string[]
+  ): Promise<ParseResult> {
+    const sheets: SheetData[] = [];
+    const formulasBySheet: Map<string, string[][]> = new Map();
+
+    for (const sheetName of sheetNames) {
+      try {
+        const { values, formulas } = await this.fetchSheetDataWithFormulas(spreadsheetId, sheetName);
+        const sheetData = this.normalizeSheetData(sheetName, values);
+        if (sheetData) {
+          sheets.push(sheetData);
+          formulasBySheet.set(sheetName, formulas);
+        }
+      } catch (error) {
+        console.warn(`Failed to import sheet ${sheetName}:`, error);
+      }
+    }
+
+    if (sheets.length === 0) {
+      return {
+        transactions: [],
+        confidence: {
+          level: 'low',
+          score: 0,
+          issues: [{ type: 'unsupported_layout', message: 'No valid sheets found', severity: 'error' }]
+        }
+      };
+    }
+
+    const parsedFile: ParsedFile = {
+      sheets,
+      inferredMapping: {
+        dateColumn: null,
+        descriptionColumn: null,
+        amountColumn: null,
+        categoryColumn: null,
+        headers: [],
+      },
+      summaryMapping: null,
+      mixedAnalysis: null,
+      detectedFormat: 'transaction',
+    };
+
+    // Use the confidence-aware parser
+    const result = xlsxParser.parseAllSheetsWithConfidence(parsedFile, sheetNames);
+
+    // Post-process: add formula breakdowns to transactions (only for grid format)
+    for (const tx of result.transactions) {
+      const idParts = tx.id.split('_');
+      let rowIdx: number | null = null;
+      let colIdx: number | null = null;
+
+      for (let i = 1; i < idParts.length - 2; i++) {
+        const maybeRow = parseInt(idParts[i], 10);
+        const maybeCol = parseInt(idParts[i + 1], 10);
+        if (!isNaN(maybeRow) && !isNaN(maybeCol)) {
+          rowIdx = maybeRow;
+          colIdx = maybeCol;
+          break;
+        }
+      }
+
+      if (rowIdx === null || colIdx === null) continue;
+
+      for (const sheet of sheets) {
+        const formulas = formulasBySheet.get(sheet.name);
+        if (!formulas) continue;
+        const headers = sheet.headers;
+        if (headers[colIdx] !== tx.category) continue;
+        const formulaRow = formulas[rowIdx + 1];
+        if (!formulaRow) continue;
+        const cellFormula = formulaRow[colIdx];
+        if (!cellFormula || typeof cellFormula !== 'string') continue;
+        const breakdown = this.parseFormulaBreakdown(cellFormula);
+        if (breakdown && breakdown.length > 1) {
+          tx.breakdownAmounts = breakdown.map(n => Math.abs(n));
+        }
+        break;
+      }
+    }
+
+    return result;
   }
 }
 

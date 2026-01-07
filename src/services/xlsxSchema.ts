@@ -220,9 +220,23 @@ export function resolveTypeFromCategory(categoryValue: string): 'income' | 'expe
 
 export function resolveCategoryValue(categoryValue: string, descriptionValue: string): string {
   const normalized = categoryValue.toLowerCase().trim();
-  if (!normalized && descriptionValue.trim()) return descriptionValue;
-  if ((normalized === 'income' || normalized === 'expense' || normalized === 'expenses') && descriptionValue.trim()) {
-    return descriptionValue;
+  const description = descriptionValue.trim();
+
+  // If no category, use description
+  if (!normalized && description) return description;
+
+  // Type-like keywords that indicate the category column is for type classification, not display
+  // When these are in category, use description as the actual spending category
+  const typeKeywords = [
+    'income', 'expense', 'expenses',
+    'shopping', 'food', 'bills', 'entertainment', 'health', 'healthcare',
+    'transport', 'transportation', 'housing', 'utilities', 'personal',
+    'education', 'travel', 'subscription', 'subscriptions', 'other'
+  ];
+
+  if (typeKeywords.includes(normalized) && description) {
+    return description;
   }
+
   return categoryValue;
 }

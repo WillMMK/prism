@@ -162,6 +162,7 @@ export const useBudgetStore = create<BudgetState>()(
 
       clearData: () => set({
         transactions: [],
+        categories: defaultCategories,
         importMetadata: null,
         error: null,
       }),
