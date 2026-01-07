@@ -1,6 +1,6 @@
 # Terms of Service
 
-**Last updated: January 4, 2026**
+**Last updated: January 7, 2026**
 
 ## Agreement to Terms
 
@@ -49,10 +49,14 @@ TO THE MAXIMUM EXTENT PERMITTED BY LAW, WE SHALL NOT BE LIABLE FOR:
 
 **You are responsible for verifying the accuracy of your financial data.**
 
-## Premium Features
+## Subscriptions and Premium Features
 
-If you purchase premium features:
-- Payment is processed through Apple App Store or Google Play
+Prism Plus is offered as a monthly or yearly subscription.
+
+- Payment is processed through the Apple App Store (or Google Play where applicable)
+- Subscriptions automatically renew unless canceled at least 24 hours before the end of the current period
+- You can manage or cancel your subscription in your App Store account settings
+- Pricing may change; you will be notified in advance in accordance with store policies
 - Purchases are non-refundable except as required by applicable law
 - Premium features are licensed, not sold, to you
 
