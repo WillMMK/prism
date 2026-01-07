@@ -608,6 +608,17 @@ export class GoogleSheetsService {
     const headerRowIndex = this.findGridHeaderRowIndex(data);
     const header = (data[headerRowIndex] || []).map(cell => String(cell ?? '').trim());
 
+    // Check for transaction-log headers FIRST - if present, this is NOT a grid layout
+    const lowerHeaders = header.map(h => h.toLowerCase());
+    const hasDateHeader = lowerHeaders.some(h => /^(date|time|posted|transaction\s*date)$/.test(h));
+    const hasDescHeader = lowerHeaders.some(h => /^(description|desc|memo|note|payee|merchant)$/.test(h));
+    const hasAmountHeader = lowerHeaders.some(h => /^(amount|total|sum|price|cost|value|credit|debit|deposit)$/.test(h));
+    // If 2+ transaction-log headers found, treat as transaction format
+    if ([hasDateHeader, hasDescHeader, hasAmountHeader].filter(Boolean).length >= 2) {
+      return null;
+    }
+
+
     const scanRows = data.slice(headerRowIndex + 1, headerRowIndex + 40);
     const monthRowCount = scanRows.filter((row) => {
       const label = String(row[0] ?? '').trim();
@@ -618,8 +629,7 @@ export class GoogleSheetsService {
       return looksLikeDateValue(label);
     }).length;
 
-    const hasDateHeader = header.slice(1).some(h => h.toLowerCase().includes('date'));
-    if (hasDateHeader && monthRowCount < 3 && dateRowCount < 5) return null;
+    // Skip grid detection if not enough month/date rows found
     if (monthRowCount < 3 && dateRowCount < 5) return null;
 
     const aggregateNames = new Set(['expense', 'expenses', 'income', 'net', 'net profit', 'total', 'balance', 'sum']);

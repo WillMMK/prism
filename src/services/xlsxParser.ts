@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import * as FileSystem from 'expo-file-system/legacy';
-import { Transaction } from '../types/budget';
+import { Transaction, DateFormat } from '../types/budget';
 import {
   findHeaderRowIndex,
   inferSchema as inferSheetSchema,
@@ -8,6 +8,71 @@ import {
   resolveCategoryValue,
   resolveTypeFromCategory,
 } from './xlsxSchema';
+
+// Detect month number (1-12) from tab/sheet name
+export function detectMonthFromTabName(tabName: string): number | null {
+  const name = tabName.trim().toLowerCase();
+  const patterns: [RegExp, number][] = [
+    [/^(jan|january)$/, 1],
+    [/^(feb|february)$/, 2],
+    [/^(mar|march)$/, 3],
+    [/^(apr|april)$/, 4],
+    [/^(may)$/, 5],
+    [/^(jun|june)$/, 6],
+    [/^(jul|july)$/, 7],
+    [/^(aug|august)$/, 8],
+    [/^(sep|sept|september)$/, 9],
+    [/^(oct|october)$/, 10],
+    [/^(nov|november)$/, 11],
+    [/^(dec|december)$/, 12],
+  ];
+  for (const [pattern, month] of patterns) {
+    if (pattern.test(name)) return month;
+  }
+  return null;
+}
+
+// Detect date format from sample dates, using tab month as a hint
+export function detectDateFormat(
+  dateValues: string[],
+  tabName?: string
+): DateFormat {
+  const tabMonth = tabName ? detectMonthFromTabName(tabName) : null;
+
+  for (const val of dateValues) {
+    const trimmed = val.trim();
+    if (!trimmed) continue;
+
+    // YYYY-MM-DD or YYYY/MM/DD → YMD
+    if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(trimmed)) {
+      return 'YMD';
+    }
+
+    // XX/XX/XXXX format - ambiguous, need to analyze
+    const match = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (match) {
+      const first = parseInt(match[1], 10);
+      const second = parseInt(match[2], 10);
+
+      // If first number > 12, it must be the day → DMY
+      if (first > 12) return 'DMY';
+      // If second number > 12, it must be the day → MDY
+      if (second > 12) return 'MDY';
+
+      // Both ≤ 12 → ambiguous, use tab month as hint
+      if (tabMonth !== null) {
+        // If tab is "Jan" (month=1) and we see "3/1/2026":
+        // - If month is in position 2 (second=1), then first=day → DMY
+        // - If month is in position 1 (first=1), then second=day → MDY
+        if (second === tabMonth) return 'DMY';
+        if (first === tabMonth) return 'MDY';
+      }
+    }
+  }
+
+  // Default to DMY (more common globally)
+  return 'DMY';
+}
 
 export interface SheetData {
   name: string;
@@ -412,8 +477,8 @@ class XLSXParserService {
 
         const headers = hasHeader
           ? Array.from({ length: maxColumns }, (_, index) =>
-              String((headerRow || [])[index] ?? '')
-            )
+            String((headerRow || [])[index] ?? '')
+          )
           : Array.from({ length: maxColumns }, () => '');
         const rows = dataRows.map(row =>
           Array.from({ length: maxColumns }, (_, index) =>
@@ -753,7 +818,11 @@ class XLSXParserService {
   }
 
   // Parse date from first column (handles various formats)
-  private parseDateFromFirstColumn(dateStr: string, defaultYear?: number): string {
+  private parseDateFromFirstColumn(
+    dateStr: string,
+    defaultYear?: number,
+    format: DateFormat = 'DMY'
+  ): string {
     if (!dateStr) return new Date().toISOString().split('T')[0];
 
     const trimmed = dateStr.trim();
@@ -766,7 +835,7 @@ class XLSXParserService {
       return date.toISOString().split('T')[0];
     }
 
-    // Year-first: 2025/1/1 or 2025/1
+    // Year-first: 2025/1/1 or 2025/1 → YMD format
     const yearFirst = trimmed.match(/^(\d{4})[\/\-](\d{1,2})([\/\-](\d{1,2}))?$/);
     if (yearFirst) {
       const year = yearFirst[1];
@@ -775,13 +844,36 @@ class XLSXParserService {
       return `${year}-${month}-${day}`;
     }
 
-    // Day-first: 01/01/2025 or 1/1/2025
-    const dayFirst = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-    if (dayFirst) {
-      const day = dayFirst[1].padStart(2, '0');
-      const month = dayFirst[2].padStart(2, '0');
-      const year = dayFirst[3];
-      return `${year}-${month}-${day}`;
+    // XX/XX/XXXX format - parse based on detected format
+    const ambiguous = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (ambiguous) {
+      const first = parseInt(ambiguous[1], 10);
+      const second = parseInt(ambiguous[2], 10);
+      const year = ambiguous[3];
+
+      let day: number;
+      let month: number;
+
+      // If one number is > 12, it's unambiguous
+      if (first > 12) {
+        day = first;
+        month = second;
+      } else if (second > 12) {
+        month = first;
+        day = second;
+      } else {
+        // Ambiguous - use the provided format
+        if (format === 'MDY') {
+          month = first;
+          day = second;
+        } else {
+          // DMY (default) or YMD (shouldn't reach here)
+          day = first;
+          month = second;
+        }
+      }
+
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     }
 
     const monthName = trimmed.match(/^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)$/i);

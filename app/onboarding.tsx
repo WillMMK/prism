@@ -74,24 +74,33 @@ export default function OnboardingScreen() {
                 </View>
 
                 {/* CTA */}
-                <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
-                    <TouchableOpacity
-                        style={[styles.ctaButton, { backgroundColor: colors.accent }]}
-                        onPress={handleContinue}
-                    >
-                        <Ionicons name="logo-google" size={20} color="#FFF" style={{ marginRight: 10 }} />
-                        <Text style={styles.ctaText}>Select a Google Sheet</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={styles.whyLink}
-                        onPress={() => setWhyVisible(true)}
-                        accessibilityRole="button"
-                    >
-                        <Text style={[styles.whyText, { color: colors.muted }]}>
-                            Why does Prism need edit access?
-                        </Text>
-                    </TouchableOpacity>
-                </View>
+            <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
+                <TouchableOpacity
+                    style={[styles.ctaButton, { backgroundColor: colors.accent }]}
+                    onPress={handleContinue}
+                >
+                    <Ionicons name="logo-google" size={20} color="#FFF" style={{ marginRight: 10 }} />
+                    <Text style={styles.ctaText}>Select a Google Sheet</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={styles.whyLink}
+                    onPress={() => setWhyVisible(true)}
+                    accessibilityRole="button"
+                >
+                    <Text style={[styles.whyText, { color: colors.muted }]}>
+                        Why does Prism need edit access?
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={styles.whyLink}
+                    onPress={() => router.push('/paywall')}
+                    accessibilityRole="button"
+                >
+                    <Text style={[styles.whyText, { color: colors.muted }]}>
+                        View Prism Plus pricing
+                    </Text>
+                </TouchableOpacity>
+            </View>
 
                 <Modal
                     animationType="fade"

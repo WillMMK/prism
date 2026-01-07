@@ -6,6 +6,7 @@ import {
     TouchableOpacity,
     ActivityIndicator,
     ScrollView,
+    Image,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,22 +27,12 @@ const FEATURES = [
     {
         icon: 'document-text' as const,
         title: 'Monthly Financial Reports',
-        description: 'Get opinionated insights on your spending patterns',
+        description: 'Get clear insights from your spending patterns',
     },
     {
         icon: 'calendar' as const,
         title: 'Yearly Review',
         description: 'Track your financial progress year over year',
-    },
-    {
-        icon: 'sync' as const,
-        title: 'Auto-Sync',
-        description: 'Keep your data up-to-date automatically',
-    },
-    {
-        icon: 'shield-checkmark' as const,
-        title: 'Priority Support',
-        description: 'Get help when you need it',
     },
 ];
 
@@ -55,6 +46,7 @@ export default function PaywallScreen() {
     const { setPremium } = usePremiumStore();
 
     const [packages, setPackages] = useState<any[]>([]);
+    const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [purchasing, setPurchasing] = useState(false);
     const [restoring, setRestoring] = useState(false);
@@ -72,13 +64,49 @@ export default function PaywallScreen() {
         setLoading(false);
     };
 
+    useEffect(() => {
+        if (!packages.length) return;
+        if (selectedPackageId) return;
+        const yearly = packages.find((pkg) => pkg?.product?.identifier?.includes('yearly'));
+        setSelectedPackageId((yearly || packages[0])?.product?.identifier ?? null);
+    }, [packages, selectedPackageId]);
+
+    const getPlanLabel = (identifier?: string) => {
+        if (!identifier) return 'Plan';
+        if (identifier.includes('yearly')) return 'Yearly';
+        return 'Monthly';
+    };
+
+    const getPeriodLabel = (identifier?: string) => {
+        if (!identifier) return 'per month';
+        if (identifier.includes('yearly')) return 'per year';
+        return 'per month';
+    };
+
+    const getYearlySavings = () => {
+        const monthly = packages.find((pkg) => pkg?.product?.identifier?.includes('monthly'));
+        const yearly = packages.find((pkg) => pkg?.product?.identifier?.includes('yearly'));
+        const monthlyPrice = monthly?.product?.price;
+        const yearlyPrice = yearly?.product?.price;
+        if (!monthlyPrice || !yearlyPrice) return null;
+        const annualFromMonthly = monthlyPrice * 12;
+        if (annualFromMonthly <= 0) return null;
+        const percentSaved = Math.round((1 - yearlyPrice / annualFromMonthly) * 100);
+        const monthsFree = Math.round(12 - yearlyPrice / monthlyPrice);
+        if (percentSaved <= 0 || monthsFree <= 0) return null;
+        return { percentSaved, monthsFree };
+    };
+
     const handlePurchase = async () => {
         if (packages.length === 0) return;
+        const selectedPackage = packages.find(
+            (pkg) => pkg?.product?.identifier === selectedPackageId
+        ) ?? packages[0];
 
         setPurchasing(true);
         setError(null);
 
-        const result = await purchasePackage(packages[0]);
+        const result = await purchasePackage(selectedPackage);
 
         if (result.success) {
             setPremium(true, 'purchase');
@@ -106,8 +134,12 @@ export default function PaywallScreen() {
         setRestoring(false);
     };
 
-    const pkg = packages[0];
-    const priceString = pkg?.product?.priceString || '$4.99';
+    const selectedPackage = packages.find(
+        (pkg) => pkg?.product?.identifier === selectedPackageId
+    ) ?? packages[0];
+    const priceString = selectedPackage?.product?.priceString || '$4.99';
+    const periodLabel = getPeriodLabel(selectedPackage?.product?.identifier);
+    const yearlySavings = getYearlySavings();
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
@@ -125,12 +157,16 @@ export default function PaywallScreen() {
             >
                 {/* Header */}
                 <View style={styles.header}>
-                    <View style={[styles.iconContainer, { backgroundColor: isDark ? 'rgba(20, 184, 166, 0.2)' : 'rgba(20, 184, 166, 0.1)' }]}>
-                        <Ionicons name="diamond" size={48} color={colors.accent} />
+                    <View style={styles.iconContainer}>
+                        <Image
+                            source={require('../assets/prism-plus.png')}
+                            style={styles.iconImage}
+                            resizeMode="contain"
+                        />
                     </View>
                     <Text style={[styles.title, { color: colors.ink }]}>Prism Plus</Text>
                     <Text style={[styles.subtitle, { color: colors.muted }]}>
-                        Unlock the full power of your finances
+                        Stop guessing what your budget means
                     </Text>
                 </View>
 
@@ -158,12 +194,50 @@ export default function PaywallScreen() {
                         </View>
                     ))}
                 </View>
+                <Text style={[styles.trustLine, { color: colors.muted }]}>
+                    Your data stays in your Google account and on your device.
+                </Text>
 
                 {/* Pricing */}
                 <View style={[styles.pricingCard, { backgroundColor: isDark ? colors.card : '#FFF', borderColor: colors.accent }]}>
                     <Text style={[styles.priceAmount, { color: colors.ink }]}>{priceString}</Text>
-                    <Text style={[styles.priceLabel, { color: colors.muted }]}>One-time purchase</Text>
-                    <Text style={[styles.priceNote, { color: colors.muted }]}>Pay once, yours forever</Text>
+                    <Text style={[styles.priceLabel, { color: colors.muted }]}>{periodLabel}</Text>
+                    <Text style={[styles.priceNote, { color: colors.muted }]}>Auto-renews until canceled</Text>
+                    <View style={styles.planList}>
+                        {packages.map((pkg) => {
+                            const id = pkg?.product?.identifier;
+                            const isSelected = id === selectedPackageId;
+                            return (
+                                <TouchableOpacity
+                                    key={id || pkg.identifier}
+                                    style={[
+                                        styles.planOption,
+                                        {
+                                            borderColor: isSelected ? colors.accent : colors.border,
+                                            backgroundColor: isSelected
+                                                ? (isDark ? 'rgba(20, 184, 166, 0.12)' : 'rgba(20, 184, 166, 0.08)')
+                                                : 'transparent',
+                                        },
+                                    ]}
+                                    onPress={() => setSelectedPackageId(id ?? null)}
+                                >
+                                    <Text style={[styles.planTitle, { color: colors.ink }]}>
+                                        {getPlanLabel(id)}
+                                    </Text>
+                                    <View style={styles.planPriceStack}>
+                                        <Text style={[styles.planPrice, { color: colors.muted }]}>
+                                            {pkg?.product?.priceString || '--'}
+                                        </Text>
+                                        {id?.includes('yearly') && yearlySavings ? (
+                                            <Text style={[styles.planSavings, { color: colors.accent }]}>
+                                                Save {yearlySavings.percentSaved}% • {yearlySavings.monthsFree} months free
+                                            </Text>
+                                        ) : null}
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
                 </View>
 
                 {/* Error */}
@@ -196,14 +270,14 @@ export default function PaywallScreen() {
                         <ActivityIndicator color={colors.muted} size="small" />
                     ) : (
                         <Text style={[styles.restoreText, { color: colors.muted }]}>
-                            Restore Purchase
+                            Restore Subscription
                         </Text>
                     )}
                 </TouchableOpacity>
 
                 {/* Terms */}
                 <Text style={[styles.terms, { color: colors.muted }]}>
-                    Payment will be charged to your Apple ID. By purchasing, you agree to our Terms of Service and Privacy Policy.
+                    Payment will be charged to your Apple ID. Subscription auto-renews unless canceled. By purchasing, you agree to our Terms of Service and Privacy Policy.
                 </Text>
             </ScrollView>
         </View>
@@ -234,12 +308,15 @@ const styles = StyleSheet.create({
         marginBottom: 32,
     },
     iconContainer: {
-        width: 96,
-        height: 96,
-        borderRadius: 48,
+        width: 120,
+        height: 120,
         alignItems: 'center',
         justifyContent: 'center',
         marginBottom: 16,
+    },
+    iconImage: {
+        width: 120,
+        height: 120,
     },
     title: {
         fontSize: 32,
@@ -280,12 +357,47 @@ const styles = StyleSheet.create({
     featureDesc: {
         fontSize: 13,
     },
+    trustLine: {
+        fontSize: 12,
+        textAlign: 'center',
+        marginBottom: 16,
+    },
     pricingCard: {
         alignItems: 'center',
         padding: 24,
         borderRadius: 20,
         borderWidth: 2,
         marginBottom: 24,
+    },
+    planList: {
+        width: '100%',
+        marginTop: 16,
+        gap: 10,
+    },
+    planOption: {
+        borderWidth: 1,
+        borderRadius: 14,
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    planPriceStack: {
+        alignItems: 'flex-end',
+        gap: 2,
+    },
+    planTitle: {
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    planPrice: {
+        fontSize: 15,
+        fontWeight: '500',
+    },
+    planSavings: {
+        fontSize: 11,
+        fontWeight: '600',
     },
     priceAmount: {
         fontSize: 48,

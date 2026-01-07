@@ -11,6 +11,9 @@ export interface Transaction {
 
 export type SheetWriteMode = 'auto' | 'grid' | 'transaction';
 
+// Date format detected from imported sheet: DD/MM/YYYY, MM/DD/YYYY, or YYYY-MM-DD
+export type DateFormat = 'DMY' | 'MDY' | 'YMD';
+
 export interface Category {
   id: string;
   name: string;
@@ -57,6 +60,7 @@ export interface GoogleSheetsConfig {
   lastKnownTabs?: string[];
   writeModeBySheet?: Record<string, SheetWriteMode>;
   recentSheets?: RecentSheet[];
+  detectedDateFormat?: DateFormat;
 }
 
 export interface DemoConfig {

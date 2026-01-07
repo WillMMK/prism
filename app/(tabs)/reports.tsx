@@ -343,7 +343,7 @@ export default function Reports() {
         ) : !hasReportAccess ? (
           <TouchableOpacity
             style={[styles.reportCard, styles.reportCardTeaser, { backgroundColor: isDark ? colors.card : '#FFFBEB', borderColor: isDark ? colors.border : '#FDE68A' }]}
-            onPress={() => router.push('/settings')}
+            onPress={() => router.push('/paywall')}
             activeOpacity={0.7}
           >
             <View style={styles.reportCardIcon}>
@@ -351,10 +351,13 @@ export default function Reports() {
             </View>
             <View style={styles.reportCardContent}>
               <Text style={[styles.reportCardTitle, { color: isDark ? colors.ink : '#92400E' }]}>
-                Unlock Monthly Financial Reports
+                Get Monthly Reports That Explain Your Numbers
               </Text>
               <Text style={[styles.reportCardSubtitle, { color: isDark ? colors.muted : '#B45309' }]}>
-                Get personalized insights with Premium
+                Clear summaries of what changed and why
+              </Text>
+              <Text style={[styles.reportCardHelper, { color: isDark ? colors.muted : '#B45309' }]}>
+                Includes monthly summaries and yearly review
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={isDark ? colors.muted : '#D97706'} />
@@ -1224,6 +1227,10 @@ const styles = StyleSheet.create({
   },
   reportCardSubtitle: {
     fontSize: 13,
+  },
+  reportCardHelper: {
+    fontSize: 12,
+    marginTop: 6,
   },
   previousReportsCard: {
     padding: 12,
