@@ -285,38 +285,42 @@ export default function Dashboard() {
               <Text style={[styles.cardTitle, { color: colors.ink, fontSize: 20, marginBottom: 4 }]}>
                 {balanceScope === 'year' ? `${selectedYear} Overview` : 'All Time'}
               </Text>
-              {isPremium && sheetsConfig.isConnected && (
-                <SyncStatusIndicator
-                  status={syncStatus}
-                  lastSyncTime={lastSyncTime}
-                  onPress={() => syncNow(true, true)}
-                  compact
-                />
-              )}
             </View>
-            <View style={[styles.segmentedControl, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.wash }]}>
-              {(['year', 'overall'] as BalanceScope[]).map((scope) => (
-                <TouchableOpacity
-                  key={scope}
-                  style={[
-                    styles.segmentedButton,
-                    balanceScope === scope && {
-                      backgroundColor: isDark ? 'rgba(255,255,255,0.15)' : colors.card,
-                    }
-                  ]}
-                  onPress={() => setBalanceScope(scope)}
-                >
-                  <Text
+            <View style={{ alignItems: 'flex-end' }}>
+              <View style={[styles.segmentedControl, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : colors.wash }]}>
+                {(['year', 'overall'] as BalanceScope[]).map((scope) => (
+                  <TouchableOpacity
+                    key={scope}
                     style={[
-                      styles.segmentedText,
-                      { color: colors.muted },
-                      balanceScope === scope && { color: colors.ink, fontWeight: '600' }
+                      styles.segmentedButton,
+                      balanceScope === scope && {
+                        backgroundColor: isDark ? 'rgba(255,255,255,0.15)' : colors.card,
+                      }
                     ]}
+                    onPress={() => setBalanceScope(scope)}
                   >
-                    {scope === 'year' ? 'Year' : 'All'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      style={[
+                        styles.segmentedText,
+                        { color: colors.muted },
+                        balanceScope === scope && { color: colors.ink, fontWeight: '600' }
+                      ]}
+                    >
+                      {scope === 'year' ? 'Year' : 'All'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {sheetsConfig.isConnected && (
+                <View style={{ marginTop: 8 }}>
+                  <SyncStatusIndicator
+                    status={syncStatus}
+                    lastSyncTime={lastSyncTime}
+                    onPress={() => syncNow(true, true)}
+                    compact
+                  />
+                </View>
+              )}
             </View>
           </View>
 

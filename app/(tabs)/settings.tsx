@@ -909,7 +909,7 @@ export default function Settings() {
           )}
 
           {/* Sync Status Indicator - shown when connected and premium */}
-          {googleConnected && sheetsConfig.isConnected && isPremium && (
+          {googleConnected && sheetsConfig.isConnected && (
             <View style={{ marginTop: 16 }}>
               <SyncStatusIndicator
                 status={syncStatus}
