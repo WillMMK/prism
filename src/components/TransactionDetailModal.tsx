@@ -29,9 +29,8 @@ const formatDate = (dateStr: string) => {
     if (isNaN(date.getTime())) return dateStr;
     return date.toLocaleDateString('en-US', {
         weekday: 'long',
-        month: 'long',
+        month: 'short',
         day: 'numeric',
-        year: 'numeric',
     });
 };
 
@@ -52,6 +51,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
         : [Math.abs(signedAmount)];
 
     const totalAbsolute = breakdownItems.reduce((sum, amt) => sum + Math.abs(amt), 0);
+    const amountColor = signedAmount < 0 ? colors.negative : colors.positive;
 
     return (
         <Modal
@@ -67,94 +67,75 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                     <View style={[styles.handleBar, { backgroundColor: colors.border }]} />
 
                     {/* Header */}
-                    <View style={[styles.header, { borderBottomColor: colors.border }]}>
-                        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                            <Ionicons name="close" size={24} color={colors.muted} />
+                    <View style={[styles.header, { borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border }]}>
+                        <View style={styles.headerSpacer} />
+                        <Text style={[styles.headerTitle, { color: colors.ink }]}>Transaction</Text>
+                        <TouchableOpacity onPress={onClose} style={styles.doneButton}>
+                            <Text style={[styles.doneButtonText, { color: colors.accent }]}>Done</Text>
                         </TouchableOpacity>
-                        <Text style={[styles.headerTitle, { color: colors.ink }]}>Transaction Details</Text>
-                        <View style={{ width: 40 }} />
                     </View>
 
                     <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                        {/* Category Badge */}
-                        <View style={styles.categoryBadge}>
-                            <View style={[styles.categoryIcon, { backgroundColor: isExpense ? (isDark ? '#3E1A1A' : '#FFEEF0') : (isDark ? '#103020' : '#E8F5E9') }]}>
+                        {/* Main Amount & Icon */}
+                        <View style={styles.heroSection}>
+                            <View style={[
+                                styles.iconBubble,
+                                { backgroundColor: isExpense ? (isDark ? 'rgba(214, 69, 80, 0.15)' : 'rgba(214, 69, 80, 0.1)') : (isDark ? 'rgba(47, 158, 68, 0.15)' : 'rgba(47, 158, 68, 0.1)') }
+                            ]}>
                                 <Ionicons
-                                    name={isExpense ? 'arrow-down' : 'arrow-up'}
-                                    size={20}
-                                    color={isExpense ? colors.negative : colors.positive}
+                                    name={isExpense ? 'cart-outline' : 'cash-outline'}
+                                    size={32}
+                                    color={amountColor}
                                 />
                             </View>
-                            <View>
-                                <Text style={[styles.categoryName, { color: colors.ink }]}>{transaction.category}</Text>
-                                <Text style={[styles.categoryDate, { color: colors.muted }]}>{formatDate(transaction.date)}</Text>
-                            </View>
-                        </View>
-
-                        {/* Description if available */}
-                        {transaction.description && transaction.description !== transaction.category && (
-                            <View style={[styles.descriptionCard, { backgroundColor: colors.wash }]}>
-                                <Ionicons name="document-text-outline" size={16} color={colors.muted} />
-                                <Text style={[styles.descriptionText, { color: colors.ink }]}>{transaction.description}</Text>
-                            </View>
-                        )}
-
-                        {/* Total Amount */}
-                        <View style={[styles.totalCard, { backgroundColor: colors.wash }]}>
-                            <Text style={[styles.totalLabel, { color: colors.muted }]}>Total Amount</Text>
-                            <Text style={[
-                                styles.totalAmount,
-                                { color: isExpense ? colors.negative : colors.positive }
-                            ]}>
+                            <Text style={[styles.heroAmount, { color: colors.ink }]}>
                                 {signedAmount < 0 ? '-' : '+'}{formatCurrency(Math.abs(signedAmount))}
                             </Text>
+                            <Text style={[styles.heroDate, { color: colors.muted }]}>{formatDate(transaction.date)}</Text>
+                        </View>
+
+                        {/* Details Card */}
+                        <View style={[styles.sectionCard, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : colors.wash }]}>
+                            {/* Category Row */}
+                            <View style={[styles.cardRow, { borderBottomColor: isDark ? 'rgba(255,255,255,0.1)' : colors.border }]}>
+                                <Text style={[styles.rowLabel, { color: colors.muted }]}>Category</Text>
+                                <Text style={[styles.rowValue, { color: colors.ink }]}>{transaction.category}</Text>
+                            </View>
+
+                            {/* Description Row */}
+                            <View style={styles.cardRowNoBorder}>
+                                <Text style={[styles.rowLabel, { color: colors.muted }]}>Description</Text>
+                                <Text style={[styles.rowValue, { color: colors.ink, maxWidth: '60%', textAlign: 'right' }]} numberOfLines={2}>
+                                    {transaction.description || 'No description'}
+                                </Text>
+                            </View>
                         </View>
 
                         {/* Breakdown Section */}
                         {hasBreakdown && (
                             <View style={styles.breakdownSection}>
-                                <Text style={[styles.breakdownTitle, { color: colors.muted }]}>
-                                    <Ionicons name="layers-outline" size={16} color={colors.muted} /> Breakdown
+                                <Text style={[styles.sectionTitle, { color: colors.muted }]}>
+                                    ITEM BREAKDOWN
                                 </Text>
-                                <View style={styles.breakdownList}>
+                                <View style={[styles.sectionCard, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : colors.wash, padding: 0, overflow: 'hidden' }]}>
                                     {breakdownItems.map((amount, index) => {
                                         const proportion = totalAbsolute > 0 ? (Math.abs(amount) / totalAbsolute) * 100 : 0;
+                                        const isLast = index === breakdownItems.length - 1;
                                         return (
-                                            <View key={index} style={[styles.breakdownItem, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                                                <View style={styles.breakdownHeader}>
-                                                    <Text style={[styles.breakdownIndex, { color: colors.muted }]}>Item {index + 1}</Text>
-                                                    <Text style={[
-                                                        styles.breakdownAmount,
-                                                        { color: amount < 0 || isExpense ? colors.negative : colors.positive }
-                                                    ]}>
-                                                        {amount < 0 ? '-' : isExpense ? '-' : '+'}{formatCurrency(Math.abs(amount))}
-                                                    </Text>
+                                            <View key={index} style={[styles.breakdownRow, !isLast && { borderBottomWidth: 1, borderBottomColor: isDark ? 'rgba(255,255,255,0.1)' : colors.border }]}>
+                                                <View style={styles.breakdownInfo}>
+                                                    <Text style={[styles.breakdownLabel, { color: colors.ink }]}>Item {index + 1}</Text>
+                                                    <View style={[styles.progressBar, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#E5E5EA' }]}>
+                                                        <View style={[styles.progressFill, { width: `${proportion}%`, backgroundColor: amountColor }]} />
+                                                    </View>
                                                 </View>
-                                                <View style={[styles.progressBar, { backgroundColor: colors.wash }]}>
-                                                    <View
-                                                        style={[
-                                                            styles.progressFill,
-                                                            {
-                                                                width: `${proportion}%`,
-                                                                backgroundColor: isExpense ? colors.negative : colors.positive,
-                                                            }
-                                                        ]}
-                                                    />
-                                                </View>
-                                                <Text style={[styles.progressPercent, { color: colors.muted }]}>{proportion.toFixed(0)}%</Text>
+                                                <Text style={[styles.breakdownAmount, { color: colors.ink }]}>
+                                                    {formatCurrency(Math.abs(amount))}
+                                                </Text>
                                             </View>
                                         );
                                     })}
                                 </View>
-                            </View>
-                        )}
-
-                        {!hasBreakdown && (
-                            <View style={[styles.noBreakdownNote, { backgroundColor: colors.wash }]}>
-                                <Ionicons name="information-circle-outline" size={18} color={colors.muted} />
-                                <Text style={[styles.noBreakdownText, { color: colors.muted }]}>
-                                    This is a single-value transaction with no itemized breakdown.
-                                </Text>
                             </View>
                         )}
 
@@ -173,165 +154,130 @@ const styles = StyleSheet.create({
     },
     backdrop: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0,0,0,0.4)',
+        backgroundColor: 'rgba(0,0,0,0.5)',
     },
     sheet: {
-        backgroundColor: palette.card,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
-        maxHeight: SCREEN_HEIGHT * 0.85,
+        maxHeight: SCREEN_HEIGHT * 0.9,
         paddingBottom: 20,
     },
     handleBar: {
-        width: 40,
-        height: 4,
-        backgroundColor: palette.border,
-        borderRadius: 2,
+        width: 36,
+        height: 5,
+        borderRadius: 3,
         alignSelf: 'center',
-        marginTop: 12,
-        marginBottom: 8,
+        marginTop: 8,
+        opacity: 0.5,
     },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: 20,
-        paddingVertical: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 14,
         borderBottomWidth: 1,
-        borderBottomColor: palette.border,
     },
-    closeButton: {
-        width: 40,
-        height: 40,
-        alignItems: 'center',
-        justifyContent: 'center',
+    headerSpacer: {
+        width: 60,
+    },
+    doneButton: {
+        width: 60,
+        alignItems: 'flex-end',
+    },
+    doneButtonText: {
+        fontSize: 17,
+        fontWeight: '600',
     },
     headerTitle: {
         fontSize: 17,
         fontWeight: '600',
-        color: palette.ink,
     },
     content: {
         paddingHorizontal: 20,
-        paddingTop: 20,
     },
-    categoryBadge: {
-        flexDirection: 'row',
+    heroSection: {
         alignItems: 'center',
-        gap: 14,
-        marginBottom: 20,
+        marginVertical: 24,
     },
-    categoryIcon: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
+    iconBubble: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
         alignItems: 'center',
         justifyContent: 'center',
+        marginBottom: 16,
     },
-    categoryName: {
-        fontSize: 20,
+    heroAmount: {
+        fontSize: 40,
         fontWeight: '700',
-        color: palette.ink,
+        letterSpacing: -1,
+        marginBottom: 4,
     },
-    categoryDate: {
-        fontSize: 14,
-        color: palette.muted,
-        marginTop: 2,
-    },
-    descriptionCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        backgroundColor: palette.wash,
-        padding: 14,
-        borderRadius: 12,
-        marginBottom: 20,
-    },
-    descriptionText: {
-        flex: 1,
-        fontSize: 14,
-        color: palette.ink,
-    },
-    totalCard: {
-        backgroundColor: palette.wash,
-        padding: 20,
-        borderRadius: 16,
-        alignItems: 'center',
-        marginBottom: 24,
-    },
-    totalLabel: {
-        fontSize: 13,
-        color: palette.muted,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-        marginBottom: 8,
-    },
-    totalAmount: {
-        fontSize: 36,
-        fontWeight: '700',
-    },
-    breakdownSection: {
-        marginBottom: 20,
-    },
-    breakdownTitle: {
+    heroDate: {
         fontSize: 15,
-        fontWeight: '600',
-        color: palette.muted,
-        marginBottom: 14,
-    },
-    breakdownList: {
-        gap: 12,
-    },
-    breakdownItem: {
-        backgroundColor: palette.background,
-        padding: 16,
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: palette.border,
-    },
-    breakdownHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    breakdownIndex: {
-        fontSize: 13,
-        color: palette.muted,
         fontWeight: '500',
     },
+    sectionCard: {
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        marginBottom: 24,
+    },
+    cardRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingVertical: 16,
+        borderBottomWidth: 1,
+    },
+    cardRowNoBorder: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingVertical: 16,
+    },
+    rowLabel: {
+        fontSize: 16,
+    },
+    rowValue: {
+        fontSize: 16,
+        fontWeight: '500',
+    },
+    sectionTitle: {
+        fontSize: 13,
+        fontWeight: '600',
+        marginBottom: 8,
+        marginLeft: 16,
+        letterSpacing: 0.5,
+    },
+    breakdownSection: {
+        marginBottom: 24,
+    },
+    breakdownRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 16,
+    },
+    breakdownInfo: {
+        flex: 1,
+        marginRight: 16,
+    },
+    breakdownLabel: {
+        fontSize: 16,
+        fontWeight: '500',
+        marginBottom: 6,
+    },
     breakdownAmount: {
-        fontSize: 18,
-        fontWeight: '700',
+        fontSize: 16,
+        fontWeight: '600',
     },
     progressBar: {
-        height: 8,
-        backgroundColor: palette.border,
-        borderRadius: 4,
-        overflow: 'hidden',
+        height: 6,
+        borderRadius: 3,
+        width: '100%',
     },
     progressFill: {
         height: '100%',
-        borderRadius: 4,
-    },
-    progressPercent: {
-        fontSize: 11,
-        color: palette.muted,
-        marginTop: 6,
-        textAlign: 'right',
-    },
-    noBreakdownNote: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        backgroundColor: palette.wash,
-        padding: 16,
-        borderRadius: 12,
-    },
-    noBreakdownText: {
-        flex: 1,
-        fontSize: 14,
-        color: palette.muted,
+        borderRadius: 3,
     },
 });
 

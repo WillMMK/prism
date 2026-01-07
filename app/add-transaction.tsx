@@ -173,8 +173,8 @@ export default function AddTransaction() {
           result.mode === 'grid' && result.cellRef
             ? `Cell ${result.cellRef}`
             : result.rowIndex !== undefined
-            ? `Row ${result.rowIndex + 1}`
-            : null;
+              ? `Row ${result.rowIndex + 1}`
+              : null;
         const suffix = location ? ` (${location})` : '';
         showToast({
           message: `Synced: ${formattedAmount} to '${finalCategory}'${suffix}`,
@@ -207,8 +207,6 @@ export default function AddTransaction() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.backgroundOrb} />
-      <View style={styles.backgroundOrbAlt} />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboard}
@@ -410,26 +408,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: palette.background,
-  },
-  backgroundOrb: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: palette.accentSoft,
-    opacity: 0.6,
-    top: -80,
-    right: -60,
-  },
-  backgroundOrbAlt: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: '#FDE7D3',
-    opacity: 0.7,
-    bottom: 80,
-    left: -90,
   },
   keyboard: {
     flex: 1,

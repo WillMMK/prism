@@ -861,8 +861,6 @@ export default function Settings() {
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
-      <View style={styles.backgroundOrb} />
-      <View style={styles.backgroundOrbAlt} />
 
 
 
@@ -987,6 +985,11 @@ export default function Settings() {
                   color={palette.muted}
                 />
               </TouchableOpacity>
+              {tabsExpanded && googleSheets.length > 0 && (
+                <Text style={styles.tabGuidance}>
+                  Select the tabs with your budget data, then tap Import below.
+                </Text>
+              )}
               {tabsExpanded && googleSheets.map((sheet) => (
                 <TouchableOpacity
                   key={sheet.sheetId}
@@ -1006,12 +1009,6 @@ export default function Settings() {
                   </View>
                 </TouchableOpacity>
               ))}
-
-              {tabsExpanded && googleSheets.length > 0 && (
-                <Text style={styles.tabGuidance}>
-                  Select the tabs with your budget data, then tap Import below.
-                </Text>
-              )}
 
               {selectedGoogleSheets.length > 0 && transactions.length > 0 && (
                 <View style={styles.writeTargetCard}>
@@ -1360,26 +1357,6 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
-  },
-  backgroundOrb: {
-    position: 'absolute',
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    backgroundColor: palette.accentSoft,
-    opacity: 0.6,
-    top: -60,
-    right: -80,
-  },
-  backgroundOrbAlt: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: '#FDE7D3',
-    opacity: 0.7,
-    bottom: 160,
-    left: -80,
   },
   section: {
     marginBottom: 24,

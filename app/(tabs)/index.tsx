@@ -9,8 +9,10 @@ import { Transaction, CategorySpending, BudgetSummary } from '../../src/types/bu
 import { PieChart } from '../../src/components/PieChart';
 import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
 import GlassCard from '../../src/components/GlassCard';
+import AuroraBackground from '../../src/components/AuroraBackground';
 import { useAutoSync } from '../../src/hooks/useAutoSync';
 import { useTheme, lightPalette as palette } from '../../src/theme';
+import OnboardingScreen from '../onboarding';
 
 
 
@@ -177,12 +179,13 @@ const ensureDistinctColors = (items: CategorySpending[]) =>
 export default function Dashboard() {
   const router = useRouter();
   const { colors, isDark } = useTheme();
-  const { transactions, categories, getRecentTransactions, getAvailableYears, demoConfig, sheetsConfig } = useBudgetStore();
+  const { transactions, categories, getRecentTransactions, getAvailableYears, demoConfig, sheetsConfig, importMetadata, _hasHydrated } = useBudgetStore();
   const { isPremium } = usePremiumStore();
   const { showToast } = useToastStore();
   const [categoryScope, setCategoryScope] = useState<Scope>('month');
   const [balanceScope, setBalanceScope] = useState<BalanceScope>('year');
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<number | null>(null);
 
   // Auto-sync hook
   const { syncNow, syncStatus, lastSyncTime } = useAutoSync({
@@ -194,19 +197,6 @@ export default function Dashboard() {
       }
     },
   });
-
-  // Auto-navigate first-time users to onboarding
-  const hasNavigatedRef = React.useRef(false);
-  React.useEffect(() => {
-    const isFirstTimeUser = transactions.length === 0 && !sheetsConfig.isConnected;
-    if (isFirstTimeUser && !hasNavigatedRef.current) {
-      hasNavigatedRef.current = true;
-      // Small delay to ensure navigation stack is ready
-      setTimeout(() => {
-        router.push('/onboarding');
-      }, 100);
-    }
-  }, [transactions.length, sheetsConfig.isConnected, router]);
 
   const recentTransactions = getRecentTransactions(4);
   const availableYears = getAvailableYears();
@@ -239,6 +229,13 @@ export default function Dashboard() {
     return ensureDistinctColors(base);
   }, [scopedTransactions, categories]);
 
+  const isOnboarded = _hasHydrated && sheetsConfig.isConnected && Boolean(importMetadata);
+
+  // Show onboarding screen if not onboarded
+  if (_hasHydrated && !isOnboarded) {
+    return <OnboardingScreen />;
+  }
+
   const scopeLabel = categoryScope === 'month' ? 'This Month' : 'This Year';
   const maskAmount = demoConfig.hideAmounts;
 
@@ -248,16 +245,14 @@ export default function Dashboard() {
   const formatCompactCurrencySafe = (amount: number) =>
     maskAmount ? '•••' : formatCompactCurrency(amount);
 
-  const [selectedCategoryIndex, setSelectedCategoryIndex] = useState<number | null>(null);
   const pieCategories = categorySpending.slice(0, 6);
   const activeCategory = selectedCategoryIndex === null ? null : pieCategories[selectedCategoryIndex];
   const totalCategorySpend = pieCategories.reduce((sum, cat) => sum + cat.amount, 0);
 
   if (transactions.length === 0) {
     return (
-      <View style={styles.container}>
+      <AuroraBackground>
         <ScrollView contentContainerStyle={styles.content}>
-          <View style={[styles.headerGradient, { backgroundColor: 'rgba(15, 118, 110, 0.06)' }]} />
           <View style={styles.emptyCard}>
             <Ionicons name="wallet-outline" size={48} color={palette.accent} />
             <Text style={styles.emptyTitle}>Budget Tracker</Text>
@@ -273,24 +268,13 @@ export default function Dashboard() {
         <TouchableOpacity style={styles.fab} onPress={() => router.push('/add-transaction')}>
           <Ionicons name="add" size={24} color="#fff" />
         </TouchableOpacity>
-      </View>
+      </AuroraBackground>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <AuroraBackground>
       <ScrollView contentContainerStyle={styles.content}>
-        {/* Gradient header that reflects financial health */}
-        <View
-          style={[
-            styles.headerGradient,
-            {
-              backgroundColor: balanceSummary.balance >= 0
-                ? (isDark ? 'rgba(20, 184, 166, 0.15)' : 'rgba(15, 118, 110, 0.08)')
-                : (isDark ? 'rgba(214, 69, 80, 0.15)' : 'rgba(214, 69, 80, 0.06)')
-            }
-          ]}
-        />
 
 
         {/* Budget Overview Card - Premium Design */}
@@ -305,7 +289,7 @@ export default function Dashboard() {
                 <SyncStatusIndicator
                   status={syncStatus}
                   lastSyncTime={lastSyncTime}
-                  onPress={() => syncNow(false, true)}
+                  onPress={() => syncNow(true, true)}
                   compact
                 />
               )}
@@ -537,7 +521,7 @@ export default function Dashboard() {
       <TouchableOpacity style={[styles.fab, { backgroundColor: colors.highlight }]} onPress={() => router.push('/add-transaction')}>
         <Ionicons name="add" size={24} color="#fff" />
       </TouchableOpacity>
-    </View>
+    </AuroraBackground>
   );
 }
 

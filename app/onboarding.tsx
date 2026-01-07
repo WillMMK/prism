@@ -11,6 +11,7 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../src/theme';
+import AuroraBackground from '../src/components/AuroraBackground';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Onboarding - Promise Screen
@@ -28,109 +29,103 @@ export default function OnboardingScreen() {
     };
 
     return (
-        <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-            {/* Background gradient */}
-            <View
-                style={[
-                    styles.bgGradient,
-                    { backgroundColor: isDark ? 'rgba(20, 184, 166, 0.08)' : 'rgba(20, 184, 166, 0.06)' }
-                ]}
-            />
-
-            {/* Content */}
-            <View style={styles.content}>
-                {/* Icon */}
-                <View style={styles.iconContainer}>
-                    <Image
-                        source={require('../assets/prism-nobackground.png')}
-                        style={styles.icon}
-                        resizeMode="contain"
-                    />
-                </View>
-
-                {/* Title */}
-                <Text style={[styles.title, { color: colors.ink }]}>
-                    Turn your Google Sheets budget into clear reports
-                </Text>
-
-                {/* Body */}
-                <Text style={[styles.body, { color: colors.muted }]}>
-                    You choose exactly which spreadsheet Prism can access.
-                </Text>
-                <View style={styles.bullets}>
-                    <Text style={[styles.bulletText, { color: colors.muted }]}>- No bank access</Text>
-                    <Text style={[styles.bulletText, { color: colors.muted }]}>- No other Drive files</Text>
-                    <Text style={[styles.bulletText, { color: colors.muted }]}>- You can revoke access anytime</Text>
-                </View>
-                {/* Trust badges */}
-                <View style={styles.badges}>
-                    <View style={[styles.privacyNote, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : colors.wash }]}>
-                        <Ionicons name="shield-checkmark" size={20} color={colors.accent} />
-                        <Text style={[styles.privacyText, { color: colors.muted }]}>
-                            You stay in full control of access
-                        </Text>
+        <AuroraBackground>
+            <View style={[styles.container, { paddingTop: insets.top }]}>
+                {/* Content */}
+                <View style={styles.content}>
+                    {/* Icon */}
+                    <View style={styles.iconContainer}>
+                        <Image
+                            source={require('../assets/prism-nobackground.png')}
+                            style={styles.icon}
+                            resizeMode="contain"
+                        />
                     </View>
-                    <View style={[styles.privacyNote, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : colors.wash }]}>
-                        <Ionicons name="cloud-offline-outline" size={20} color={colors.accent} />
-                        <Text style={[styles.privacyText, { color: colors.muted }]}>
-                            Your data is never uploaded or stored on our servers
-                        </Text>
-                    </View>
-                </View>
-            </View>
 
-            {/* CTA */}
-            <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
-                <TouchableOpacity
-                    style={[styles.ctaButton, { backgroundColor: colors.accent }]}
-                    onPress={handleContinue}
-                >
-                    <Ionicons name="logo-google" size={20} color="#FFF" style={{ marginRight: 10 }} />
-                    <Text style={styles.ctaText}>Select a Google Sheet</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={styles.whyLink}
-                    onPress={() => setWhyVisible(true)}
-                    accessibilityRole="button"
-                >
-                    <Text style={[styles.whyText, { color: colors.muted }]}>
-                        Why does Prism need edit access?
+                    {/* Title */}
+                    <Text style={[styles.title, { color: colors.ink }]}>
+                        Turn your Google Sheets budget into clear reports
                     </Text>
-                </TouchableOpacity>
-            </View>
 
-            <Modal
-                animationType="fade"
-                transparent
-                visible={isWhyVisible}
-                onRequestClose={() => setWhyVisible(false)}
-            >
-                <View style={styles.modalBackdrop}>
-                    <View style={[styles.modalCard, { backgroundColor: colors.card }]}>
-                        <Text style={[styles.modalTitle, { color: colors.ink }]}>
-                            About Google Sheets access
-                        </Text>
-                        <Text style={[styles.modalBody, { color: colors.muted }]}>
-                            Prism needs edit access so it can:
-                        </Text>
-                        <View style={styles.bullets}>
-                            <Text style={[styles.bulletText, { color: colors.muted }]}>- Read existing transactions</Text>
-                            <Text style={[styles.bulletText, { color: colors.muted }]}>- Add new transactions you enter in the app</Text>
+                    {/* Body */}
+                    <Text style={[styles.body, { color: colors.muted }]}>
+                        You choose exactly which spreadsheet Prism can access.
+                    </Text>
+                    <View style={styles.bullets}>
+                        <Text style={[styles.bulletText, { color: colors.muted }]}>- No bank access</Text>
+                        <Text style={[styles.bulletText, { color: colors.muted }]}>- No other Drive files</Text>
+                        <Text style={[styles.bulletText, { color: colors.muted }]}>- You can revoke access anytime</Text>
+                    </View>
+                    {/* Trust badges */}
+                    <View style={styles.badges}>
+                        <View style={[styles.privacyNote, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : colors.wash }]}>
+                            <Ionicons name="shield-checkmark" size={20} color={colors.accent} />
+                            <Text style={[styles.privacyText, { color: colors.muted }]}>
+                                You stay in full control of access
+                            </Text>
                         </View>
-                        <Text style={[styles.modalBody, { color: colors.muted }]}>
-                            Prism cannot access files you don&apos;t select.{"\n"}
-                            You can revoke access anytime in your Google Account.
-                        </Text>
-                        <TouchableOpacity
-                            style={[styles.modalButton, { backgroundColor: colors.accent }]}
-                            onPress={() => setWhyVisible(false)}
-                        >
-                            <Text style={styles.modalButtonText}>Got it</Text>
-                        </TouchableOpacity>
+                        <View style={[styles.privacyNote, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : colors.wash }]}>
+                            <Ionicons name="cloud-offline-outline" size={20} color={colors.accent} />
+                            <Text style={[styles.privacyText, { color: colors.muted }]}>
+                                Your data is never uploaded or stored on our servers
+                            </Text>
+                        </View>
                     </View>
                 </View>
-            </Modal>
-        </View>
+
+                {/* CTA */}
+                <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
+                    <TouchableOpacity
+                        style={[styles.ctaButton, { backgroundColor: colors.accent }]}
+                        onPress={handleContinue}
+                    >
+                        <Ionicons name="logo-google" size={20} color="#FFF" style={{ marginRight: 10 }} />
+                        <Text style={styles.ctaText}>Select a Google Sheet</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={styles.whyLink}
+                        onPress={() => setWhyVisible(true)}
+                        accessibilityRole="button"
+                    >
+                        <Text style={[styles.whyText, { color: colors.muted }]}>
+                            Why does Prism need edit access?
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+
+                <Modal
+                    animationType="fade"
+                    transparent
+                    visible={isWhyVisible}
+                    onRequestClose={() => setWhyVisible(false)}
+                >
+                    <View style={styles.modalBackdrop}>
+                        <View style={[styles.modalCard, { backgroundColor: colors.card }]}>
+                            <Text style={[styles.modalTitle, { color: colors.ink }]}>
+                                About Google Sheets access
+                            </Text>
+                            <Text style={[styles.modalBody, { color: colors.muted }]}>
+                                Prism needs edit access so it can:
+                            </Text>
+                            <View style={styles.bullets}>
+                                <Text style={[styles.bulletText, { color: colors.muted }]}>- Read existing transactions</Text>
+                                <Text style={[styles.bulletText, { color: colors.muted }]}>- Add new transactions you enter in the app</Text>
+                            </View>
+                            <Text style={[styles.modalBody, { color: colors.muted }]}>
+                                Prism cannot access files you don&apos;t select.{"\n"}
+                                You can revoke access anytime in your Google Account.
+                            </Text>
+                            <TouchableOpacity
+                                style={[styles.modalButton, { backgroundColor: colors.accent }]}
+                                onPress={() => setWhyVisible(false)}
+                            >
+                                <Text style={styles.modalButtonText}>Got it</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </Modal>
+            </View>
+        </AuroraBackground>
     );
 }
 
@@ -141,15 +136,6 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-    },
-    bgGradient: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 400,
-        borderBottomLeftRadius: 60,
-        borderBottomRightRadius: 60,
     },
     content: {
         flex: 1,

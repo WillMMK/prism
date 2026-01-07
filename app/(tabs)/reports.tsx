@@ -11,6 +11,7 @@ import { PieChart } from '../../src/components/PieChart';
 import { Sparkline } from '../../src/components/Sparkline';
 
 import { useTheme, lightPalette as palette } from '../../src/theme';
+import OnboardingScreen from '../onboarding';
 
 const fallbackCategoryColors = [
   '#0072B2',
@@ -154,21 +155,18 @@ export default function Reports() {
     getTrends,
     getAvailableYears,
     demoConfig,
+    sheetsConfig,
+    importMetadata,
+    _hasHydrated,
   } = useBudgetStore();
 
   const { getReportList } = useReportStore();
   const { canUseFeature, isPremium } = usePremiumStore();
-  const hasReportAccess = canUseFeature('advanced_reports');
 
   const monthlyReports = getMonthlyReports(12);
   const yearlyReports = getYearlyReports();
   const trends = getTrends();
   const availableYears = getAvailableYears();
-  const maskAmount = demoConfig.hideAmounts;
-  const formatCurrencySafe = (amount: number) =>
-    maskAmount ? '•••' : formatCurrency(amount);
-  const formatCompactCurrencySafe = (amount: number) =>
-    maskAmount ? '•••' : formatCompactCurrency(amount);
 
   useEffect(() => {
     if (availableYears.length > 0 && !availableYears.includes(focusedYear)) {
@@ -215,6 +213,34 @@ export default function Reports() {
       }));
   }, [timelineScope, yearlyReports, monthlyReports]);
 
+  const yearlyByYear = useMemo(() => {
+    const map = new Map<number, typeof yearlyReports[number]>();
+    yearlyReports.forEach((report) => map.set(report.year, report));
+    return map;
+  }, [yearlyReports]);
+
+  const trendSeries = useMemo(() => {
+    const chrono = [...monthlyReports].reverse().slice(-6);
+    const income = chrono.map((report) => report.income);
+    const expenses = chrono.map((report) => report.expenses);
+    const savings = chrono.map((report) => report.savings);
+    return { income, expenses, savings };
+  }, [monthlyReports]);
+
+  const isOnboarded = _hasHydrated && sheetsConfig.isConnected && Boolean(importMetadata);
+
+  // Show onboarding screen if not onboarded
+  if (_hasHydrated && !isOnboarded) {
+    return <OnboardingScreen />;
+  }
+
+  const hasReportAccess = canUseFeature('advanced_reports');
+  const maskAmount = demoConfig.hideAmounts;
+  const formatCurrencySafe = (amount: number) =>
+    maskAmount ? '•••' : formatCurrency(amount);
+  const formatCompactCurrencySafe = (amount: number) =>
+    maskAmount ? '•••' : formatCompactCurrency(amount);
+
   const maxTimelineValue = Math.max(...timelineData.map((item) => item.value), 0);
   const averageTimelineValue =
     timelineData.length > 0
@@ -234,20 +260,6 @@ export default function Reports() {
   const activeYearCategory =
     selectedYearCategoryIndex === null ? null : yearPieCategories[selectedYearCategoryIndex];
   const totalYearCategorySpend = yearPieCategories.reduce((sum, cat) => sum + cat.amount, 0);
-
-  const yearlyByYear = useMemo(() => {
-    const map = new Map<number, typeof yearlyReports[number]>();
-    yearlyReports.forEach((report) => map.set(report.year, report));
-    return map;
-  }, [yearlyReports]);
-
-  const trendSeries = useMemo(() => {
-    const chrono = [...monthlyReports].reverse().slice(-6);
-    const income = chrono.map((report) => report.income);
-    const expenses = chrono.map((report) => report.expenses);
-    const savings = chrono.map((report) => report.savings);
-    return { income, expenses, savings };
-  }, [monthlyReports]);
 
   if (transactions.length === 0) {
     return (
@@ -779,8 +791,6 @@ export default function Reports() {
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
-      <View style={[styles.backgroundOrb, { backgroundColor: colors.accentSoft, opacity: isDark ? 0.2 : 0.6 }]} />
-      <View style={[styles.backgroundOrbAlt, { backgroundColor: isDark ? colors.card : '#FDE7D3', opacity: isDark ? 0.1 : 0.7 }]} />
       {renderReportEntry()}
       {renderTabs()}
       {activeTab === 'overview' && renderOverview()}
@@ -798,26 +808,6 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
-  },
-  backgroundOrb: {
-    position: 'absolute',
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: palette.accentSoft,
-    opacity: 0.6,
-    top: -80,
-    right: -60,
-  },
-  backgroundOrbAlt: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: '#FDE7D3',
-    opacity: 0.7,
-    bottom: 140,
-    left: -80,
   },
   empty: {
     flex: 1,

@@ -7,6 +7,7 @@ import { Transaction } from '../../src/types/budget';
 import { TransactionDetailModal } from '../../src/components/TransactionDetailModal';
 
 import { useTheme, lightPalette as palette } from '../../src/theme';
+import OnboardingScreen from '../onboarding';
 
 const formatCurrency = (amount: number) =>
   '$' + amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -33,11 +34,18 @@ const getSignedAmount = (transaction: Transaction): number =>
 export default function Transactions() {
   const router = useRouter();
   const { colors, isDark } = useTheme();
-  const { transactions, demoConfig } = useBudgetStore();
+  const { transactions, demoConfig, sheetsConfig, importMetadata, _hasHydrated } = useBudgetStore();
   const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const formatCurrencySafe = (amount: number) =>
     demoConfig.hideAmounts ? '•••' : formatCurrency(amount);
+
+  const isOnboarded = _hasHydrated && sheetsConfig.isConnected && Boolean(importMetadata);
+
+  // Show onboarding screen if not onboarded
+  if (_hasHydrated && !isOnboarded) {
+    return <OnboardingScreen />;
+  }
 
   const filteredTransactions = transactions
     .filter((tx) => filter === 'all' || tx.type === filter)
@@ -105,8 +113,6 @@ export default function Transactions() {
   if (transactions.length === 0) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.backgroundOrb} />
-        <View style={styles.backgroundOrbAlt} />
         <View style={styles.empty}>
           <Ionicons name="receipt-outline" size={64} color={colors.muted} />
           <Text style={[styles.title, { color: colors.ink }]}>No Transactions</Text>
@@ -122,8 +128,6 @@ export default function Transactions() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.backgroundOrb, { backgroundColor: colors.accentSoft, opacity: isDark ? 0.2 : 0.6 }]} />
-      <View style={[styles.backgroundOrbAlt, { backgroundColor: isDark ? colors.card : '#FDE7D3', opacity: isDark ? 0.1 : 0.7 }]} />
       <View style={[styles.filterRow, { backgroundColor: colors.wash }]}>
         {(['all', 'income', 'expense'] as const).map((type) => (
           <TouchableOpacity
@@ -181,26 +185,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: palette.background,
     padding: 20,
-  },
-  backgroundOrb: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: palette.accentSoft,
-    opacity: 0.6,
-    top: -70,
-    right: -70,
-  },
-  backgroundOrbAlt: {
-    position: 'absolute',
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: '#FDE7D3',
-    opacity: 0.7,
-    bottom: 140,
-    left: -80,
   },
   empty: {
     flex: 1,

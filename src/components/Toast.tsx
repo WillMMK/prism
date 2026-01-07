@@ -1,54 +1,74 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Animated, StyleSheet, Text, View, Platform, Dimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { useToastStore } from '../store/toastStore';
+import { useTheme } from '../theme';
 
-const palette = {
-  ink: '#1E1B16',
-  card: '#FFFFFF',
-  shadow: '#000000',
-  success: '#0F766E',
-  info: '#2F4F4F',
-  error: '#B91C1C',
-};
+const { width } = Dimensions.get('window');
 
 export const Toast = () => {
   const { message, tone, visible, durationMs, hideToast } = useToastStore();
+  const insets = useSafeAreaInsets();
+  const { isDark } = useTheme();
+
+  // Animation values
   const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(12)).current;
+  const translateY = useRef(new Animated.Value(-20)).current;
+  const scale = useRef(new Animated.Value(0.9)).current;
+
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const toneColor = useMemo(() => {
-    if (tone === 'success') return palette.success;
-    if (tone === 'error') return palette.error;
-    return palette.info;
-  }, [tone]);
+  const config = useMemo(() => {
+    switch (tone) {
+      case 'success':
+        return { icon: 'checkmark-circle' as const, color: '#10B981', bg: isDark ? 'rgba(6, 78, 59, 0.8)' : 'rgba(209, 250, 229, 0.9)' };
+      case 'error':
+        return { icon: 'alert-circle' as const, color: '#EF4444', bg: isDark ? 'rgba(127, 29, 29, 0.8)' : 'rgba(254, 226, 226, 0.9)' };
+      default:
+        return { icon: 'information-circle' as const, color: isDark ? '#FFF' : '#1E1B16', bg: isDark ? 'rgba(39, 39, 42, 0.8)' : 'rgba(255, 255, 255, 0.9)' };
+    }
+  }, [tone, isDark]);
 
   useEffect(() => {
     if (!visible) {
       Animated.parallel([
         Animated.timing(opacity, {
           toValue: 0,
-          duration: 160,
+          duration: 200,
           useNativeDriver: true,
         }),
         Animated.timing(translateY, {
-          toValue: 12,
-          duration: 160,
+          toValue: -20,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scale, {
+          toValue: 0.9,
+          duration: 200,
           useNativeDriver: true,
         }),
       ]).start();
       return;
     }
 
+    // Show animation
     Animated.parallel([
-      Animated.timing(opacity, {
+      Animated.spring(opacity, {
         toValue: 1,
-        duration: 180,
         useNativeDriver: true,
       }),
-      Animated.timing(translateY, {
+      Animated.spring(translateY, {
         toValue: 0,
-        duration: 180,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scale, {
+        toValue: 1,
+        friction: 8,
+        tension: 40,
         useNativeDriver: true,
       }),
     ]).start();
@@ -61,23 +81,39 @@ export const Toast = () => {
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [visible, durationMs, hideToast, opacity, translateY]);
+  }, [visible, durationMs, hideToast]);
 
   if (!message) return null;
 
+  const topPadding = Math.max(insets.top, 44) + 12; // Dynamic Island / Notch avoidance
+
   return (
-    <View pointerEvents="none" style={styles.container}>
+    <View pointerEvents="none" style={[styles.container, { top: topPadding }]}>
       <Animated.View
         style={[
           styles.toast,
           {
-            borderLeftColor: toneColor,
             opacity,
-            transform: [{ translateY }],
+            transform: [{ translateY }, { scale }],
+            backgroundColor: config.bg,
+            borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
           },
         ]}
       >
-        <Text style={styles.text}>{message}</Text>
+        {Platform.OS === 'ios' && (
+          <BlurView
+            style={StyleSheet.absoluteFill}
+            intensity={40}
+            tint={isDark ? 'dark' : 'light'}
+          />
+        )}
+
+        <View style={styles.content}>
+          <Ionicons name={config.icon} size={20} color={config.color} style={styles.icon} />
+          <Text style={[styles.text, { color: isDark ? '#FFF' : '#1E1B16' }]}>
+            {message}
+          </Text>
+        </View>
       </Animated.View>
     </View>
   );
@@ -88,28 +124,36 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    top: '38%',
     alignItems: 'center',
+    zIndex: 9999,
     paddingHorizontal: 16,
   },
   toast: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: palette.card,
-    borderRadius: 16,
-    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 12,
-    borderLeftWidth: 4,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
+    paddingHorizontal: 16,
+    borderRadius: 99, // Capsule shape
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+    maxWidth: Math.min(width - 32, 400),
+    overflow: 'hidden', // Required for BlurView
+  },
+  content: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  icon: {
+    marginRight: 10,
   },
   text: {
-    color: palette.ink,
     fontSize: 14,
     fontWeight: '600',
+    letterSpacing: -0.2,
   },
 });
 

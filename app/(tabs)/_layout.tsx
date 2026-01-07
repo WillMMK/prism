@@ -1,34 +1,44 @@
 import React from 'react';
-import { Tabs, useRouter, useSegments } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Alert, AppState } from 'react-native';
 import { flushPendingTransactions } from '../../src/services/transactionSync';
 import * as Clipboard from 'expo-clipboard';
 
 import { useTheme } from '../../src/theme';
-import { extractSpreadsheetId } from '../../src/services/googleSheets';
+import { extractSpreadsheetId, googleSheetsService } from '../../src/services/googleSheets';
 import { useBudgetStore } from '../../src/store/budgetStore';
+import { useShallow } from 'zustand/react/shallow';
 
 export default function TabsLayout() {
   const { colors, isDark } = useTheme();
   const router = useRouter();
-  const segments = useSegments();
   const lastClipboardRef = React.useRef<string | null>(null);
   const lastPromptedRef = React.useRef<string | null>(null);
-  const isOnSettings = segments.includes('settings');
-  const sheetsConfig = useBudgetStore((state) => state.sheetsConfig);
-  const hasConnectedSheet = Boolean(sheetsConfig.isConnected || sheetsConfig.spreadsheetId);
+  const { sheetsConfig, importMetadata, hasHydrated } = useBudgetStore(
+    useShallow((state) => ({
+      sheetsConfig: state.sheetsConfig,
+      importMetadata: state.importMetadata,
+      hasHydrated: state._hasHydrated,
+    }))
+  );
+  const isOnboarded = hasHydrated && sheetsConfig.isConnected && Boolean(importMetadata);
 
   // Clipboard detection for Google Sheets URLs
-  // Only enabled AFTER Google is connected but BEFORE a sheet is linked
+  // Enabled when Google is authenticated (token exists) but no spreadsheet is linked yet
   // This helps users who have authorized but still need to paste their sheet URL
-  const isGoogleConnectedNoSheet = sheetsConfig.isConnected && !sheetsConfig.spreadsheetId;
 
   React.useEffect(() => {
     let isMounted = true;
     const checkClipboard = async () => {
-      // Only show smart paste when Google is connected but no sheet is set yet
-      if (!isMounted || isOnSettings || !isGoogleConnectedNoSheet) return;
+      if (!isMounted) return;
+
+      // Check if a spreadsheet is already linked - if so, no need for smart paste
+      if (sheetsConfig.spreadsheetId) return;
+
+      // Check if Google is connected by looking for a stored token
+      const token = await googleSheetsService.getStoredToken();
+      if (!token) return;
       const clipboardText = (await Clipboard.getStringAsync()).trim();
       if (!clipboardText || clipboardText === lastClipboardRef.current) return;
       lastClipboardRef.current = clipboardText;
@@ -53,7 +63,8 @@ export default function TabsLayout() {
       );
     };
 
-    void checkClipboard();
+    // Only check clipboard when returning from background, not on initial mount
+    // This prevents a confusing permission dialog on first app open
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void checkClipboard();
@@ -64,7 +75,7 @@ export default function TabsLayout() {
       isMounted = false;
       subscription.remove();
     };
-  }, [router, isOnSettings, isGoogleConnectedNoSheet]);
+  }, [router, sheetsConfig.spreadsheetId]);
 
   React.useEffect(() => {
     const tryFlush = () => {
@@ -93,6 +104,7 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.border,
+          ...(isOnboarded ? null : { display: 'none' }),
         },
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.muted,
@@ -102,6 +114,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Dashboard',
+          tabBarButton: isOnboarded ? undefined : () => null,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={color} />
           ),
@@ -111,6 +124,7 @@ export default function TabsLayout() {
         name="transactions"
         options={{
           title: 'Transactions',
+          tabBarButton: isOnboarded ? undefined : () => null,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons name={focused ? 'list' : 'list-outline'} size={size} color={color} />
           ),
@@ -120,6 +134,7 @@ export default function TabsLayout() {
         name="reports"
         options={{
           title: 'Reports',
+          tabBarButton: isOnboarded ? undefined : () => null,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons name={focused ? 'bar-chart' : 'bar-chart-outline'} size={size} color={color} />
           ),
