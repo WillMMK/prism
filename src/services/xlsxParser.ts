@@ -160,7 +160,7 @@ const EXPENSE_KEYWORDS = [
   'living', 'rent', 'housing', 'accommodation',
   'bill', 'bills', 'utilities', 'electricity', 'water', 'internet', 'phone',
   'groceries', 'grocery', 'food', 'supermarket',
-  'dine', 'dining', 'restaurant', 'eat', 'eating', 'meals',
+  'dine', 'dining', 'restaurant', 'eat', 'eating', 'meals', 'coffee', 'cafe', 'drink', 'beverage',
   'mortgage', 'loan', 'debt', 'payment',
   'childcare', 'child', 'kids', 'education', 'school', 'tuition',
   'insurance', 'health', 'medical', 'doctor',
@@ -1428,26 +1428,47 @@ class XLSXParserService {
           const categoryType = resolveTypeFromCategory(categoryVal);
           type = categoryType || 'expense';
         } else if (typeStrategy === 'category-keyword') {
-          // Category column has keywords like "Groceries", "Salary"
-          if (this.isExpenseCategory(categoryVal)) {
-            type = 'expense';
-          } else if (this.isIncomeCategory(categoryVal)) {
+          // Category column has keywords. Use stricter income check.
+          if (this.isIncomeCategory(categoryVal)) {
             type = 'income';
+          } else if (this.isExpenseCategory(categoryVal)) {
+            type = 'expense';
           } else {
-            type = signedAmount < 0 ? 'expense' : 'income';
+            // Category is ambiguous (e.g., "Main", "Misc").
+            // Check Description before defaulting!
+            if (this.isIncomeCategory(descVal)) {
+              type = 'income';
+            } else {
+              type = 'expense';
+            }
           }
         } else if (typeStrategy === 'description-keyword') {
-          // Description column has keywords
-          if (this.isExpenseCategory(descVal)) {
-            type = 'expense';
-          } else if (this.isIncomeCategory(descVal)) {
+          // Description column has keywords. Use stricter income check.
+          if (this.isIncomeCategory(descVal)) {
             type = 'income';
           } else {
-            type = signedAmount < 0 ? 'expense' : 'income';
+            // "Starbucks" (unknown) -> Expense
+            type = 'expense';
           }
         } else {
           // No reliable column - use sign only
-          type = signedAmount < 0 ? 'expense' : 'income';
+          // Fallback: If sign is negative -> Expense. If positive -> Income?
+          // Wait, if "Sign Only" strategy was chosen, it forces sign-based.
+          // BUT if we want "Default to Expense" for unknown positive descriptions...
+          // Maybe we should check Description for Income Keywords even in fallback?
+          if (this.isIncomeCategory(descVal)) {
+            type = 'income';
+          } else {
+            // For sign-only, stick to sign convention?
+            // Or adopt "Default to Expense"?
+            // If all values are positive, default -> Expense.
+            // If values are mixed, sign matters.
+            // Let's rely on sign IF mixed. If all positive, default to Expense.
+            // But here we are processing row by row.
+            // Safest bet for "Sign Only" strategy is still sign.
+            // The User's issue was with Keyword strategies failing.
+            type = signedAmount < 0 ? 'expense' : 'income';
+          }
         }
       }
 
