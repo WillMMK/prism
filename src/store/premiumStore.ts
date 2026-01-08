@@ -29,7 +29,7 @@ export const usePremiumStore = create<PremiumState>()(
       isPremium: false, // Default to free tier - unlock via paywall
       purchaseDate: null,
       transactionId: null,
-      autoSyncEnabled: false, // Enable when user upgrades to premium
+      autoSyncEnabled: true, // Enabled for all users
       syncIntervalMinutes: 30,
 
       setPremium: (isPremium, transactionId) =>

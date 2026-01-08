@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -6,6 +7,7 @@ import LoadingOverlay from '../src/components/LoadingOverlay';
 
 import { useAutoSync } from '../src/hooks/useAutoSync';
 import { ThemeProvider, useTheme } from '../src/theme';
+import { initializeRevenueCat } from '../src/services/revenuecat';
 import { View } from 'react-native';
 
 function AutoSyncProvider() {
@@ -15,6 +17,11 @@ function AutoSyncProvider() {
 
 function AuthenticatedLayout() {
   const { colors, isDark } = useTheme();
+
+  // Initialize RevenueCat SDK on app startup
+  useEffect(() => {
+    initializeRevenueCat();
+  }, []);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>

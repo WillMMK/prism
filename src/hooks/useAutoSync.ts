@@ -19,7 +19,7 @@ interface UseAutoSyncOptions {
 
 export const useAutoSync = (options?: UseAutoSyncOptions) => {
   const { sheetsConfig, setTransactions, setSheetsConfig, transactions: currentTransactions } = useBudgetStore();
-  const { isPremium, autoSyncEnabled, syncIntervalMinutes } = usePremiumStore();
+  const { autoSyncEnabled, syncIntervalMinutes } = usePremiumStore();
   const { show: showLoading, hide: hideLoading } = useLoadingOverlay();
 
   const appState = useRef(AppState.currentState);
@@ -57,7 +57,7 @@ export const useAutoSync = (options?: UseAutoSyncOptions) => {
   useEffect(() => {
     const setupBackgroundSync = async () => {
       try {
-        if (isPremium && autoSyncEnabled) {
+        if (autoSyncEnabled) {
           await registerBackgroundSync();
         } else {
           await unregisterBackgroundSync();
@@ -68,7 +68,7 @@ export const useAutoSync = (options?: UseAutoSyncOptions) => {
       }
     };
     setupBackgroundSync();
-  }, [isPremium, autoSyncEnabled]);
+  }, [autoSyncEnabled]);
 
   const performSync = useCallback(async (showOverlay = true, force = false): Promise<boolean> => {
     // Skip if not connected to sheets or already syncing
@@ -197,7 +197,7 @@ export const useAutoSync = (options?: UseAutoSyncOptions) => {
 
   // Sync on app foreground (when premium + enabled)
   useEffect(() => {
-    if (!isPremium || !autoSyncEnabled) return;
+    if (!autoSyncEnabled) return;
 
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       // App came to foreground
@@ -215,11 +215,11 @@ export const useAutoSync = (options?: UseAutoSyncOptions) => {
     return () => {
       subscription.remove();
     };
-  }, [isPremium, autoSyncEnabled, performSync]);
+  }, [autoSyncEnabled, performSync]);
 
   // Periodic sync interval (when premium + enabled)
   useEffect(() => {
-    if (!isPremium || !autoSyncEnabled || !sheetsConfig.isConnected) {
+    if (!autoSyncEnabled || !sheetsConfig.isConnected) {
       // Clear interval if conditions not met
       if (syncIntervalRef.current) {
         clearInterval(syncIntervalRef.current);
@@ -244,11 +244,11 @@ export const useAutoSync = (options?: UseAutoSyncOptions) => {
         syncIntervalRef.current = null;
       }
     };
-  }, [isPremium, autoSyncEnabled, syncIntervalMinutes, sheetsConfig.isConnected, performSync]);
+  }, [autoSyncEnabled, syncIntervalMinutes, sheetsConfig.isConnected, performSync]);
 
   // Initial sync on app open (if premium + enabled)
   useEffect(() => {
-    if (isPremium && autoSyncEnabled && sheetsConfig.isConnected) {
+    if (autoSyncEnabled && sheetsConfig.isConnected) {
       // Delay initial sync to avoid blocking app startup
       const timeout = setTimeout(() => {
         performSync(false);

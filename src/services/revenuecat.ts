@@ -100,17 +100,44 @@ export async function checkSubscriptionStatus(): Promise<SubscriptionStatus> {
 // Purchasing
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Offering identifier - must match RevenueCat dashboard
+const OFFERING_ID = 'prism_plus';
+
 /**
  * Get available packages for purchase
  */
 export async function getPackages(): Promise<PurchasesPackage[]> {
     try {
         const offerings = await Purchases.getOfferings();
+
+        // Log available offerings for debugging
+        console.log('[RevenueCat] Available offerings:', Object.keys(offerings.all || {}));
+        console.log('[RevenueCat] Current offering:', offerings.current?.identifier);
+
+        // Try to get our specific offering first
+        const prismOffering = offerings.all?.[OFFERING_ID];
+        if (prismOffering?.availablePackages?.length) {
+            console.log('[RevenueCat] Using prism_plus offering with', prismOffering.availablePackages.length, 'packages');
+            return prismOffering.availablePackages;
+        }
+
+        // Fallback to default offering
+        const defaultOffering = offerings.all?.['default'];
+        if (defaultOffering?.availablePackages?.length) {
+            console.log('[RevenueCat] Using default offering with', defaultOffering.availablePackages.length, 'packages');
+            return defaultOffering.availablePackages;
+        }
+
+        // Fallback to current offering
         if (offerings.current?.availablePackages?.length) {
+            console.log('[RevenueCat] Using current offering with', offerings.current.availablePackages.length, 'packages');
             return offerings.current.availablePackages;
         }
 
+        console.warn('[RevenueCat] No offerings found. Available:', JSON.stringify(offerings.all));
+
         if (__DEV__) {
+            console.log('[RevenueCat] Using mock packages for development');
             return [
                 {
                     identifier: 'monthly',
