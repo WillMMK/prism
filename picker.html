@@ -112,8 +112,6 @@
 
 <body>
     <div class="card">
-        <img src="https://getprismbudget.com/prism-icon.png" alt="Prism" class="logo"
-            onerror="this.style.display='none'">
         <h1>Select Your Spreadsheet</h1>
         <p>Choose a budget spreadsheet from your Google Drive. Only the sheet you select will be accessible to Prism.
         </p>
@@ -237,7 +235,7 @@
             setTimeout(openPicker, 500);
         } else {
             showStatus('Missing access token. Please start from the Prism app.', true);
-            returnError('Missing access token');
+            // Don't call returnError here - it causes immediate redirect
         }
     </script>
 </body>
