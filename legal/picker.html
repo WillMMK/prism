@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select Spreadsheet - Prism</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .logo {
+            width: 60px;
+            height: 60px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #1a1a2e;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        p {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 30px;
+            line-height: 1.5;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            background: #4285F4;
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(66, 133, 244, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .status {
+            margin-top: 20px;
+            color: #666;
+            font-size: 13px;
+        }
+
+        .error {
+            color: #d32f2f;
+            background: #ffebee;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-size: 13px;
+        }
+
+        .success {
+            color: #2e7d32;
+            background: #e8f5e9;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-size: 13px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <h1>Select Your Spreadsheet</h1>
+        <p>Choose a budget spreadsheet from your Google Drive. Only the sheet you select will be accessible to Prism.
+        </p>
+
+        <button id="pickBtn" class="btn" onclick="openPicker()">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+                <path
+                    d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z" />
+            </svg>
+            Open Google Drive
+        </button>
+
+        <div id="status" class="status" style="display:none;"></div>
+    </div>
+
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script>
+        // Configuration
+        const API_KEY = 'AIzaSyBO6TWo1UoHEEzkn4ioE7qXTKRo4x6W7YM';
+        const APP_ID = '907648461438';
+
+        // Get params from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        let accessToken = urlParams.get('token') || window.INJECTED_TOKEN || null;
+        const returnScheme = urlParams.get('scheme') || 'budget-tracker';
+        const isEmbedded = urlParams.get('embedded') === 'true';
+
+        // Function to receive token from injected JavaScript
+        window.initWithToken = function (token) {
+            console.log('[Picker] Received injected token');
+            accessToken = token;
+            // Auto-open picker when token is injected
+            setTimeout(openPicker, 100);
+        };
+
+        function showStatus(msg, isError) {
+            const el = document.getElementById('status');
+            el.style.display = 'block';
+            el.className = isError ? 'error' : 'status';
+            el.textContent = msg;
+        }
+
+        function sendResult(data) {
+            if (isEmbedded && window.ReactNativeWebView) {
+                // Send to React Native WebView
+                window.ReactNativeWebView.postMessage(JSON.stringify(data));
+            } else {
+                // Deep link back to app
+                const params = new URLSearchParams(data).toString();
+                const deepLink = `${returnScheme}://picker?${params}`;
+                showStatus('Returning to Prism...', false);
+                window.location.href = deepLink;
+            }
+        }
+
+        function returnToApp(fileId, fileName) {
+            sendResult({
+                action: 'picked',
+                fileId: fileId,
+                fileName: fileName || 'Spreadsheet'
+            });
+        }
+
+        function returnCancel() {
+            sendResult({ action: 'cancel' });
+        }
+
+        function returnError(message) {
+            sendResult({ action: 'error', message: message });
+        }
+
+        function openPicker() {
+            if (!accessToken) {
+                showStatus('No access token provided. Please try again from the app.', true);
+                returnError('No access token');
+                return;
+            }
+
+            document.getElementById('pickBtn').disabled = true;
+            showStatus('Loading Google Drive...', false);
+
+            gapi.load('picker', () => {
+                try {
+                    const docsView = new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS)
+                        .setMimeTypes('application/vnd.google-apps.spreadsheet')
+                        .setMode(google.picker.DocsViewMode.LIST);
+
+                    const picker = new google.picker.PickerBuilder()
+                        .addView(docsView)
+                        .setOAuthToken(accessToken)
+                        .setDeveloperKey(API_KEY)
+                        .setAppId(APP_ID)
+                        .setTitle('Select Budget Spreadsheet')
+                        .setCallback(pickerCallback)
+                        .enableFeature(google.picker.Feature.NAV_HIDDEN)
+                        .build();
+
+                    picker.setVisible(true);
+                    document.getElementById('status').style.display = 'none';
+                } catch (err) {
+                    showStatus('Failed to load picker: ' + err.message, true);
+                    document.getElementById('pickBtn').disabled = false;
+                    returnError(err.message);
+                }
+            });
+        }
+
+        function pickerCallback(data) {
+            if (data.action === google.picker.Action.PICKED) {
+                const doc = data.docs[0];
+                returnToApp(doc.id, doc.name);
+            } else if (data.action === google.picker.Action.CANCEL) {
+                returnCancel();
+            }
+            document.getElementById('pickBtn').disabled = false;
+        }
+
+        // Auto-open picker if token is present
+        if (accessToken) {
+            // Small delay to ensure gapi loads
+            setTimeout(openPicker, 500);
+        } else {
+            showStatus('Missing access token. Please start from the Prism app.', true);
+            // Don't call returnError here - it causes immediate redirect
+        }
+    </script>
+</body>
+
+</html>

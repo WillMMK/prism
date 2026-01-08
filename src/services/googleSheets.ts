@@ -19,8 +19,7 @@ const GOOGLE_WEB_CLIENT_ID = '907648461438-2q8au98sdpogg0hiu3sc9g5o3uruhqmf.apps
 const GOOGLE_IOS_CLIENT_ID = '907648461438-lttve08jch0tc7639k16hill7smkbqur.apps.googleusercontent.com';
 const GOOGLE_ANDROID_CLIENT_ID = '';
 const SCOPES = [
-  'https://www.googleapis.com/auth/spreadsheets.readonly',
-  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/drive.file',
 ];
 
 const discovery = {

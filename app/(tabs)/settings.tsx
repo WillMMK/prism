@@ -26,6 +26,7 @@ import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
 import { useAutoSync } from '../../src/hooks/useAutoSync';
 import { useToastStore } from '../../src/store/toastStore';
 import { useTheme, lightPalette as palette } from '../../src/theme';
+import { GoogleDrivePicker, PickedFile } from '../../src/components/GoogleDrivePicker';
 
 
 
@@ -82,6 +83,8 @@ export default function Settings() {
   const [selectedSpreadsheet, setSelectedSpreadsheet] = useState<SpreadsheetFile | null>(null);
   const [selectedGoogleSheets, setSelectedGoogleSheets] = useState<string[]>([]);
   const [sheetUrlInput, setSheetUrlInput] = useState('');
+  const [showDrivePicker, setShowDrivePicker] = useState(false);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleRowCounts, setGoogleRowCounts] = useState<Record<string, number>>({});
   const [writeTargetsExpanded, setWriteTargetsExpanded] = useState(true);
@@ -329,6 +332,34 @@ export default function Settings() {
       setSheetUrlInput('');
     } catch (error: any) {
       Alert.alert('Google Sheets', error.message || 'Failed to load spreadsheet. Make sure the URL is correct and you have access.');
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
+  const handlePickerSelect = async (file: PickedFile) => {
+    setShowDrivePicker(false);
+    setIsGoogleLoading(true);
+    try {
+      const metadata = await googleSheetsService.getSpreadsheetMetadata(file.id);
+      setGoogleSheets(metadata.sheets);
+      setSelectedSpreadsheet({
+        id: file.id,
+        name: file.name || metadata.title || 'Google Sheets',
+        modifiedTime: new Date().toISOString(),
+      });
+      setSelectedGoogleSheets(metadata.sheets.map((sheet) => sheet.title));
+      setGoogleRowCounts({});
+      try {
+        const categoryNames = await googleSheetsService.getCategoryNames(file.id);
+        if (categoryNames.length > 0) {
+          upsertCategories(categoryNames);
+        }
+      } catch {
+        // Ignore missing category sheet
+      }
+    } catch (error: any) {
+      Alert.alert('Google Sheets', error.message || 'Failed to load spreadsheet.');
     } finally {
       setIsGoogleLoading(false);
     }
@@ -860,494 +891,507 @@ export default function Settings() {
   );
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
+    <>
+      <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
 
 
 
 
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.ink }]}>Google Sheets</Text>
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.cardDescription, { color: colors.muted }]}>
-            Connect to Google, then paste your spreadsheet URL.
-          </Text>
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.ink }]}>Google Sheets</Text>
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.cardDescription, { color: colors.muted }]}>
+              Connect to Google, then paste your spreadsheet URL.
+            </Text>
 
-          {!googleConnected ? (
-            <View style={[styles.permissionCard, { backgroundColor: colors.wash, borderColor: colors.border }]}>
-              <Text style={[styles.permissionTitle, { color: colors.ink }]}>Prism works with your data</Text>
-              <Text style={[styles.permissionText, { color: colors.ink }]}>
-                To sync your budget, we need permission to read and write to Google Sheets.
-              </Text>
-              <Text style={[styles.permissionNote, { color: colors.muted }]}>
-                🔒 Prism can only access the spreadsheet you paste. Your data stays on your device.
-              </Text>
-              <TouchableOpacity
-                style={[styles.uploadButton, !request && styles.disabledButton]}
-                onPress={() => promptAsync()}
-                disabled={!request || isGoogleLoading}
-              >
-                {isGoogleLoading ? (
-                  <ActivityIndicator color="#fff" size="small" />
+            {!googleConnected ? (
+              <View style={[styles.permissionCard, { backgroundColor: colors.wash, borderColor: colors.border }]}>
+                <Text style={[styles.permissionTitle, { color: colors.ink }]}>Prism works with your data</Text>
+                <Text style={[styles.permissionText, { color: colors.ink }]}>
+                  To sync your budget, we need permission to read and write to Google Sheets.
+                </Text>
+                <Text style={[styles.permissionNote, { color: colors.muted }]}>
+                  🔒 Prism can only access the spreadsheet you paste. Your data stays on your device.
+                </Text>
+                <TouchableOpacity
+                  style={[styles.uploadButton, !request && styles.disabledButton]}
+                  onPress={() => promptAsync()}
+                  disabled={!request || isGoogleLoading}
+                >
+                  {isGoogleLoading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons name="logo-google" size={20} color="#fff" />
+                      <Text style={styles.uploadButtonText}>Continue to Google</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.googleActions}>
+                <TouchableOpacity
+                  style={styles.secondaryButton}
+                  onPress={handleGoogleDisconnect}
+                >
+                  <Ionicons name="log-out-outline" size={16} color={palette.accent} />
+                  <Text style={styles.secondaryButtonText}>Disconnect</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Sync Status Indicator - shown when connected and premium */}
+            {googleConnected && sheetsConfig.isConnected && (
+              <View style={{ marginTop: 16 }}>
+                <SyncStatusIndicator
+                  status={syncStatus}
+                  lastSyncTime={lastSyncTime}
+                  pendingCount={pendingCount}
+                  onPress={() => syncNow(true, true)}
+                />
+              </View>
+            )}
+
+            {googleConnected && (
+              <View style={styles.googleSection}>
+                {selectedSpreadsheet ? (
+                  <View style={styles.googleSelectedCard}>
+                    <View style={styles.googleRowInfo}>
+                      <Text style={styles.googleRowTitle}>{selectedSpreadsheet.name}</Text>
+                      <Text style={styles.googleRowMeta}>
+                        Updated {new Date(selectedSpreadsheet.modifiedTime).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.changeButton}
+                      onPress={clearSelectedSpreadsheet}
+                    >
+                      <Text style={styles.changeButtonText}>Change</Text>
+                    </TouchableOpacity>
+                  </View>
                 ) : (
                   <>
-                    <Ionicons name="logo-google" size={20} color="#fff" />
-                    <Text style={styles.uploadButtonText}>Continue to Google</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.googleActions}>
-              <TouchableOpacity
-                style={styles.secondaryButton}
-                onPress={handleGoogleDisconnect}
-              >
-                <Ionicons name="log-out-outline" size={16} color={palette.accent} />
-                <Text style={styles.secondaryButtonText}>Disconnect</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Sync Status Indicator - shown when connected and premium */}
-          {googleConnected && sheetsConfig.isConnected && (
-            <View style={{ marginTop: 16 }}>
-              <SyncStatusIndicator
-                status={syncStatus}
-                lastSyncTime={lastSyncTime}
-                pendingCount={pendingCount}
-                onPress={() => syncNow(true, true)}
-              />
-            </View>
-          )}
-
-          {googleConnected && (
-            <View style={styles.googleSection}>
-              {selectedSpreadsheet ? (
-                <View style={styles.googleSelectedCard}>
-                  <View style={styles.googleRowInfo}>
-                    <Text style={styles.googleRowTitle}>{selectedSpreadsheet.name}</Text>
-                    <Text style={styles.googleRowMeta}>
-                      Updated {new Date(selectedSpreadsheet.modifiedTime).toLocaleDateString()}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.changeButton}
-                    onPress={clearSelectedSpreadsheet}
-                  >
-                    <Text style={styles.changeButtonText}>Change</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <>
-                  <Text style={styles.sheetHeader}>Paste your Google Sheets URL</Text>
-                  <View style={styles.searchRow}>
-                    <TextInput
-                      value={sheetUrlInput}
-                      onChangeText={setSheetUrlInput}
-                      placeholder="https://docs.google.com/spreadsheets/d/..."
-                      placeholderTextColor={palette.muted}
-                      style={styles.searchInput}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                    />
                     <TouchableOpacity
-                      style={[styles.searchButton, (isGoogleLoading || !sheetUrlInput.trim()) && styles.secondaryButtonDisabled]}
-                      onPress={handleLoadFromUrl}
-                      disabled={isGoogleLoading || !sheetUrlInput.trim()}
+                      style={[styles.primaryButton, isGoogleLoading && styles.primaryButtonDisabled]}
+                      onPress={async () => {
+                        const stored = await googleSheetsService.getStoredToken();
+                        if (stored?.accessToken) {
+                          setAccessToken(stored.accessToken);
+                          setShowDrivePicker(true);
+                        } else {
+                          Alert.alert('Authentication Required', 'Please sign in to Google first.');
+                        }
+                      }}
+                      disabled={isGoogleLoading}
                     >
                       {isGoogleLoading ? (
                         <ActivityIndicator color="#fff" size="small" />
                       ) : (
-                        <Ionicons name="arrow-forward" size={16} color="#fff" />
+                        <>
+                          <Ionicons name="document-text-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
+                          <Text style={styles.primaryButtonText}>Select Google Sheet</Text>
+                        </>
                       )}
                     </TouchableOpacity>
-                  </View>
-                  <Text style={styles.urlHint}>
-                    Open your budget spreadsheet in Google Sheets, copy the URL from your browser, and paste it here.
-                  </Text>
-                </>
-              )}
-            </View>
-          )}
-
-          {selectedSpreadsheet && googleSheets.length > 0 && (
-            <View style={styles.googleSection}>
-              <TouchableOpacity
-                style={styles.sheetHeaderRow}
-                onPress={() => setTabsExpanded((prev) => !prev)}
-              >
-                <Text style={styles.sheetHeader}>
-                  Tabs in {selectedSpreadsheet.name}
-                </Text>
-                <Ionicons
-                  name={tabsExpanded ? 'chevron-up' : 'chevron-down'}
-                  size={16}
-                  color={palette.muted}
-                />
-              </TouchableOpacity>
-              {tabsExpanded && googleSheets.length > 0 && (
-                <Text style={styles.tabGuidance}>
-                  Prism works best with simple transaction lists (date, amount, category).{'\n'}
-                  Complex layouts or formulas may not import correctly.
-                </Text>
-              )}
-              {tabsExpanded && googleSheets.map((sheet) => (
-                <TouchableOpacity
-                  key={sheet.sheetId}
-                  style={styles.sheetRow}
-                  onPress={() => toggleGoogleSheet(sheet.title)}
-                >
-                  <Ionicons
-                    name={selectedGoogleSheets.includes(sheet.title) ? 'checkbox' : 'square-outline'}
-                    size={24}
-                    color={selectedGoogleSheets.includes(sheet.title) ? palette.positive : palette.muted}
-                  />
-                  <View style={styles.sheetInfo}>
-                    <Text style={styles.sheetName}>{sheet.title}</Text>
-                    <Text style={styles.sheetMeta}>
-                      {(googleRowCounts[sheet.title] ?? sheet.rowCount)} rows, {sheet.columnCount} columns
+                    <Text style={styles.urlHint}>
+                      Choose your budget spreadsheet from Google Drive. Only sheets you select will be accessible to Prism.
                     </Text>
-                  </View>
+                  </>
+                )}
+              </View>
+            )}
+
+            {selectedSpreadsheet && googleSheets.length > 0 && (
+              <View style={styles.googleSection}>
+                <TouchableOpacity
+                  style={styles.sheetHeaderRow}
+                  onPress={() => setTabsExpanded((prev) => !prev)}
+                >
+                  <Text style={styles.sheetHeader}>
+                    Tabs in {selectedSpreadsheet.name}
+                  </Text>
+                  <Ionicons
+                    name={tabsExpanded ? 'chevron-up' : 'chevron-down'}
+                    size={16}
+                    color={palette.muted}
+                  />
                 </TouchableOpacity>
-              ))}
-
-              {selectedGoogleSheets.length > 0 && transactions.length > 0 && (
-                <View style={styles.writeTargetCard}>
+                {tabsExpanded && googleSheets.length > 0 && (
+                  <Text style={styles.tabGuidance}>
+                    Prism works best with simple transaction lists (date, amount, category).{'\n'}
+                    Complex layouts or formulas may not import correctly.
+                  </Text>
+                )}
+                {tabsExpanded && googleSheets.map((sheet) => (
                   <TouchableOpacity
-                    style={styles.writeTargetHeader}
-                    onPress={() => setWriteTargetsExpanded((prev) => !prev)}
+                    key={sheet.sheetId}
+                    style={styles.sheetRow}
+                    onPress={() => toggleGoogleSheet(sheet.title)}
                   >
-                    <Text style={styles.writeTargetTitle}>Where to save new entries</Text>
                     <Ionicons
-                      name={writeTargetsExpanded ? 'chevron-up' : 'chevron-down'}
-                      size={16}
-                      color={palette.muted}
+                      name={selectedGoogleSheets.includes(sheet.title) ? 'checkbox' : 'square-outline'}
+                      size={24}
+                      color={selectedGoogleSheets.includes(sheet.title) ? palette.positive : palette.muted}
                     />
-                  </TouchableOpacity>
-                  {writeTargetsExpanded && (
-                    <>
-                      <View style={styles.writeTargetRow}>
-                        <Text style={styles.writeTargetLabel}>Expense →</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                          <View style={styles.writeTargetChips}>
-                            {selectedGoogleSheets.map((name) => (
-                              <TouchableOpacity
-                                key={`expense-${name}`}
-                                style={[
-                                  styles.writeTargetChip,
-                                  sheetsConfig.expenseSheetName === name && styles.writeTargetChipActive,
-                                ]}
-                                onPress={() => setWriteTarget('expense', name)}
-                              >
-                                <Text
-                                  style={[
-                                    styles.writeTargetChipText,
-                                    sheetsConfig.expenseSheetName === name && styles.writeTargetChipTextActive,
-                                  ]}
-                                >
-                                  {name}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        </ScrollView>
-                      </View>
-                      <View style={styles.writeTargetRow}>
-                        <Text style={styles.writeTargetLabel}>Income →</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                          <View style={styles.writeTargetChips}>
-                            {selectedGoogleSheets.map((name) => (
-                              <TouchableOpacity
-                                key={`income-${name}`}
-                                style={[
-                                  styles.writeTargetChip,
-                                  sheetsConfig.incomeSheetName === name && styles.writeTargetChipActive,
-                                ]}
-                                onPress={() => setWriteTarget('income', name)}
-                              >
-                                <Text
-                                  style={[
-                                    styles.writeTargetChipText,
-                                    sheetsConfig.incomeSheetName === name && styles.writeTargetChipTextActive,
-                                  ]}
-                                >
-                                  {name}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        </ScrollView>
-                      </View>
-                      <Text style={styles.writeTargetNote}>
-                        Writes append only to the selected sheet for each type.
+                    <View style={styles.sheetInfo}>
+                      <Text style={styles.sheetName}>{sheet.title}</Text>
+                      <Text style={styles.sheetMeta}>
+                        {(googleRowCounts[sheet.title] ?? sheet.rowCount)} rows, {sheet.columnCount} columns
                       </Text>
-                    </>
-                  )}
-                </View>
-              )}
+                    </View>
+                  </TouchableOpacity>
+                ))}
 
-              {(sheetsConfig.expenseSheetName || sheetsConfig.incomeSheetName) && transactions.length > 0 && (
-                <View style={styles.writeTargetCard}>
-                  <View style={styles.writeTargetHeader}>
-                    <Text style={styles.writeTargetTitle}>Sheet settings</Text>
-                  </View>
-                  {[
-                    { label: 'Expense', sheetName: sheetsConfig.expenseSheetName },
-                    { label: 'Income', sheetName: sheetsConfig.incomeSheetName },
-                  ]
-                    .filter((item) => item.sheetName)
-                    .map((item) => {
-                      const sheetName = item.sheetName as string;
-                      const selectedMode = sheetsConfig.writeModeBySheet?.[sheetName] ?? 'auto';
-                      return (
-                        <View key={`${item.label}-${sheetName}`} style={styles.sheetSettingRow}>
-                          <View style={styles.sheetSettingInfo}>
-                            <Text style={styles.sheetSettingLabel}>{item.label} sheet</Text>
-                            <Text style={styles.sheetSettingMeta}>{sheetName}</Text>
-                            <Text style={styles.sheetSettingDetected}>
-                              Detected: {formatDetectedMode(detectedWriteModes[sheetName])}
-                            </Text>
-                          </View>
+                {selectedGoogleSheets.length > 0 && transactions.length > 0 && (
+                  <View style={styles.writeTargetCard}>
+                    <TouchableOpacity
+                      style={styles.writeTargetHeader}
+                      onPress={() => setWriteTargetsExpanded((prev) => !prev)}
+                    >
+                      <Text style={styles.writeTargetTitle}>Where to save new entries</Text>
+                      <Ionicons
+                        name={writeTargetsExpanded ? 'chevron-up' : 'chevron-down'}
+                        size={16}
+                        color={palette.muted}
+                      />
+                    </TouchableOpacity>
+                    {writeTargetsExpanded && (
+                      <>
+                        <View style={styles.writeTargetRow}>
+                          <Text style={styles.writeTargetLabel}>Expense →</Text>
                           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                            <View style={styles.writeModeChips}>
-                              {(['auto', 'grid', 'transaction'] as SheetWriteMode[]).map((mode) => (
+                            <View style={styles.writeTargetChips}>
+                              {selectedGoogleSheets.map((name) => (
                                 <TouchableOpacity
-                                  key={`${sheetName}-${mode}`}
+                                  key={`expense-${name}`}
                                   style={[
-                                    styles.writeModeChip,
-                                    selectedMode === mode && styles.writeModeChipActive,
+                                    styles.writeTargetChip,
+                                    sheetsConfig.expenseSheetName === name && styles.writeTargetChipActive,
                                   ]}
-                                  onPress={() => setWriteMode(sheetName, mode)}
+                                  onPress={() => setWriteTarget('expense', name)}
                                 >
                                   <Text
                                     style={[
-                                      styles.writeModeChipText,
-                                      selectedMode === mode && styles.writeModeChipTextActive,
+                                      styles.writeTargetChipText,
+                                      sheetsConfig.expenseSheetName === name && styles.writeTargetChipTextActive,
                                     ]}
                                   >
-                                    {mode === 'auto' ? 'Auto' : mode === 'grid' ? 'Grid' : 'List'}
+                                    {name}
                                   </Text>
                                 </TouchableOpacity>
                               ))}
                             </View>
                           </ScrollView>
                         </View>
-                      );
-                    })}
-                  <Text style={styles.writeTargetNote}>
-                    Auto uses detection. Use Grid or Log to override write behavior.
-                  </Text>
-                </View>
-              )}
+                        <View style={styles.writeTargetRow}>
+                          <Text style={styles.writeTargetLabel}>Income →</Text>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            <View style={styles.writeTargetChips}>
+                              {selectedGoogleSheets.map((name) => (
+                                <TouchableOpacity
+                                  key={`income-${name}`}
+                                  style={[
+                                    styles.writeTargetChip,
+                                    sheetsConfig.incomeSheetName === name && styles.writeTargetChipActive,
+                                  ]}
+                                  onPress={() => setWriteTarget('income', name)}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.writeTargetChipText,
+                                      sheetsConfig.incomeSheetName === name && styles.writeTargetChipTextActive,
+                                    ]}
+                                  >
+                                    {name}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          </ScrollView>
+                        </View>
+                        <Text style={styles.writeTargetNote}>
+                          Writes append only to the selected sheet for each type.
+                        </Text>
+                      </>
+                    )}
+                  </View>
+                )}
 
-              <TouchableOpacity
-                style={[styles.importButton, { backgroundColor: colors.positive }, isGoogleLoading && styles.disabledButton]}
-                onPress={handleGoogleImport}
-                disabled={isGoogleLoading || selectedGoogleSheets.length === 0}
-              >
-                <Ionicons name="download" size={20} color="#fff" />
-                <Text style={styles.buttonText}>
-                  Import {selectedGoogleSheets.length} Sheet
-                  {selectedGoogleSheets.length !== 1 ? 's' : ''}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      </View>
+                {(sheetsConfig.expenseSheetName || sheetsConfig.incomeSheetName) && transactions.length > 0 && (
+                  <View style={styles.writeTargetCard}>
+                    <View style={styles.writeTargetHeader}>
+                      <Text style={styles.writeTargetTitle}>Sheet settings</Text>
+                    </View>
+                    {[
+                      { label: 'Expense', sheetName: sheetsConfig.expenseSheetName },
+                      { label: 'Income', sheetName: sheetsConfig.incomeSheetName },
+                    ]
+                      .filter((item) => item.sheetName)
+                      .map((item) => {
+                        const sheetName = item.sheetName as string;
+                        const selectedMode = sheetsConfig.writeModeBySheet?.[sheetName] ?? 'auto';
+                        return (
+                          <View key={`${item.label}-${sheetName}`} style={styles.sheetSettingRow}>
+                            <View style={styles.sheetSettingInfo}>
+                              <Text style={styles.sheetSettingLabel}>{item.label} sheet</Text>
+                              <Text style={styles.sheetSettingMeta}>{sheetName}</Text>
+                              <Text style={styles.sheetSettingDetected}>
+                                Detected: {formatDetectedMode(detectedWriteModes[sheetName])}
+                              </Text>
+                            </View>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                              <View style={styles.writeModeChips}>
+                                {(['auto', 'grid', 'transaction'] as SheetWriteMode[]).map((mode) => (
+                                  <TouchableOpacity
+                                    key={`${sheetName}-${mode}`}
+                                    style={[
+                                      styles.writeModeChip,
+                                      selectedMode === mode && styles.writeModeChipActive,
+                                    ]}
+                                    onPress={() => setWriteMode(sheetName, mode)}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.writeModeChipText,
+                                        selectedMode === mode && styles.writeModeChipTextActive,
+                                      ]}
+                                    >
+                                      {mode === 'auto' ? 'Auto' : mode === 'grid' ? 'Grid' : 'List'}
+                                    </Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </View>
+                            </ScrollView>
+                          </View>
+                        );
+                      })}
+                    <Text style={styles.writeTargetNote}>
+                      Auto uses detection. Use Grid or Log to override write behavior.
+                    </Text>
+                  </View>
+                )}
 
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.ink }]}>Manual File Import</Text>
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.cardDescription, { color: colors.muted }]}>
-            Upload an Excel (.xlsx) or CSV file with your budget data
-          </Text>
-
-          <TouchableOpacity
-            style={styles.uploadButton}
-            onPress={handlePickFile}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <>
-                <Ionicons name="document-attach" size={24} color="#fff" />
-                <Text style={styles.uploadButtonText}>
-                  {fileName || 'Select File'}
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {fileName && (
-            <View style={[styles.fileInfo, { backgroundColor: colors.wash }]}>
-              <Ionicons name="checkmark-circle" size={20} color={colors.positive} />
-              <Text style={[styles.fileName, { color: colors.ink }]} numberOfLines={1}>{fileName}</Text>
-            </View>
-          )}
-        </View>
-      </View>
-
-      {parsedFile && parsedFile.sheets.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Sheets to Import</Text>
-          <View style={styles.card}>
-            {parsedFile.sheets.map((sheet) => (
-              <TouchableOpacity
-                key={sheet.name}
-                style={styles.sheetRow}
-                onPress={() => toggleSheet(sheet.name)}
-              >
-                <Ionicons
-                  name={selectedSheets.includes(sheet.name) ? 'checkbox' : 'square-outline'}
-                  size={24}
-                  color={selectedSheets.includes(sheet.name) ? palette.positive : palette.muted}
-                />
-                <View style={styles.sheetInfo}>
-                  <Text style={styles.sheetName}>{sheet.name}</Text>
-                  <Text style={styles.sheetMeta}>
-                    {sheet.rowCount} rows, {sheet.headers.length} columns
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-
-            <TouchableOpacity
-              style={[styles.importButton, { backgroundColor: colors.positive }, isLoading && styles.disabledButton]}
-              onPress={handleImport}
-              disabled={isLoading || selectedSheets.length === 0}
-            >
-              <Ionicons name="download" size={20} color="#fff" />
-              <Text style={styles.buttonText}>
-                Import {selectedSheets.length} Sheet{selectedSheets.length !== 1 ? 's' : ''}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {parsedFile && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Detected Schema</Text>
-          {parsedFile.detectedFormat === 'mixed' && parsedFile.mixedAnalysis
-            ? renderMixedSchema(parsedFile.mixedAnalysis)
-            : parsedFile.detectedFormat === 'summary' && parsedFile.summaryMapping
-              ? renderSummarySchema(parsedFile.summaryMapping)
-              : renderTransactionSchema(parsedFile.inferredMapping)}
-        </View>
-      )}
-
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.ink }]}>Data Status</Text>
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {/* Persistence indicator */}
-          <View style={[styles.persistenceRow, { borderBottomColor: colors.border }]}>
-            <Ionicons
-              name={_hasHydrated ? 'cloud-done' : 'cloud-outline'}
-              size={16}
-              color={_hasHydrated ? colors.positive : colors.muted}
-            />
-            <Text style={[styles.persistenceText, { color: colors.muted }]}>
-              {_hasHydrated ? 'Data persisted locally' : 'Loading saved data...'}
-            </Text>
-          </View>
-
-          <View style={styles.statusRow}>
-            <Ionicons
-              name={transactions.length > 0 ? 'checkmark-circle' : 'alert-circle'}
-              size={24}
-              color={transactions.length > 0 ? colors.positive : colors.muted}
-            />
-            <Text style={[styles.statusText, { color: colors.ink }]}>
-              {transactions.length > 0
-                ? `${transactions.length} transactions loaded`
-                : 'No data loaded'}
-            </Text>
-          </View>
-
-          {importMetadata && (
-            <View style={styles.metadataRow}>
-              <Text style={styles.metadataText}>
-                Last import: {new Date(importMetadata.lastImportDate).toLocaleDateString()}
-              </Text>
-              <Text style={styles.metadataText}>
-                Source: {importMetadata.sourceFile}
-              </Text>
-              {importMetadata.sheetNames.length > 0 && (
-                <Text style={styles.metadataText}>
-                  Sheets: {importMetadata.sheetNames.join(', ')}
-                </Text>
-              )}
-            </View>
-          )}
-
-          {transactions.length > 0 && (
-            <>
-              <View style={styles.statsRow}>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>
-                    {transactions.filter(t => t.type === 'income').length}
-                  </Text>
-                  <Text style={styles.statLabel}>Income</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>
-                    {transactions.filter(t => t.type === 'expense').length}
-                  </Text>
-                  <Text style={styles.statLabel}>Expenses</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>
-                    {new Set(transactions.map(t => t.category)).size}
-                  </Text>
-                  <Text style={styles.statLabel}>Categories</Text>
-                </View>
-              </View>
-
-              <View style={styles.demoRow}>
-                <View style={styles.demoInfo}>
-                  <Text style={styles.demoTitle}>Demo mode</Text>
-                  <Text style={styles.demoSubtitle}>
-                    Hide currency amounts while keeping percentages
-                  </Text>
-                </View>
                 <TouchableOpacity
-                  style={[styles.demoButton, demoConfig.hideAmounts && styles.demoButtonActive]}
-                  onPress={() => setDemoConfig({ hideAmounts: !demoConfig.hideAmounts })}
+                  style={[styles.importButton, { backgroundColor: colors.positive }, isGoogleLoading && styles.disabledButton]}
+                  onPress={handleGoogleImport}
+                  disabled={isGoogleLoading || selectedGoogleSheets.length === 0}
                 >
-                  <Text style={[styles.demoButtonText, demoConfig.hideAmounts && styles.demoButtonTextActive]}>
-                    {demoConfig.hideAmounts ? 'Hidden' : 'Show'}
+                  <Ionicons name="download" size={20} color="#fff" />
+                  <Text style={styles.buttonText}>
+                    Import {selectedGoogleSheets.length} Sheet
+                    {selectedGoogleSheets.length !== 1 ? 's' : ''}
                   </Text>
                 </TouchableOpacity>
               </View>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.ink }]}>Manual File Import</Text>
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.cardDescription, { color: colors.muted }]}>
+              Upload an Excel (.xlsx) or CSV file with your budget data
+            </Text>
+
+            <TouchableOpacity
+              style={styles.uploadButton}
+              onPress={handlePickFile}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="document-attach" size={24} color="#fff" />
+                  <Text style={styles.uploadButtonText}>
+                    {fileName || 'Select File'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {fileName && (
+              <View style={[styles.fileInfo, { backgroundColor: colors.wash }]}>
+                <Ionicons name="checkmark-circle" size={20} color={colors.positive} />
+                <Text style={[styles.fileName, { color: colors.ink }]} numberOfLines={1}>{fileName}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {parsedFile && parsedFile.sheets.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Sheets to Import</Text>
+            <View style={styles.card}>
+              {parsedFile.sheets.map((sheet) => (
+                <TouchableOpacity
+                  key={sheet.name}
+                  style={styles.sheetRow}
+                  onPress={() => toggleSheet(sheet.name)}
+                >
+                  <Ionicons
+                    name={selectedSheets.includes(sheet.name) ? 'checkbox' : 'square-outline'}
+                    size={24}
+                    color={selectedSheets.includes(sheet.name) ? palette.positive : palette.muted}
+                  />
+                  <View style={styles.sheetInfo}>
+                    <Text style={styles.sheetName}>{sheet.name}</Text>
+                    <Text style={styles.sheetMeta}>
+                      {sheet.rowCount} rows, {sheet.headers.length} columns
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
 
               <TouchableOpacity
-                style={styles.clearButton}
-                onPress={handleClearData}
+                style={[styles.importButton, { backgroundColor: colors.positive }, isLoading && styles.disabledButton]}
+                onPress={handleImport}
+                disabled={isLoading || selectedSheets.length === 0}
               >
-                <Ionicons name="trash" size={18} color={palette.negative} />
-                <Text style={styles.clearButtonText}>Clear All Data</Text>
+                <Ionicons name="download" size={20} color="#fff" />
+                <Text style={styles.buttonText}>
+                  Import {selectedSheets.length} Sheet{selectedSheets.length !== 1 ? 's' : ''}
+                </Text>
               </TouchableOpacity>
-            </>
-          )}
-        </View>
-      </View>
+            </View>
+          </View>
+        )}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>About</Text>
-        <View style={styles.card}>
-          <Text style={styles.aboutText}>Budget Tracker v1.0.0</Text>
-          <Text style={styles.hint}>
-            Supports .xlsx, .xls, and .csv files{'\n'}
-            Auto-detects: Transaction logs & Monthly summaries{'\n'}
-            Intelligently categorizes expense vs income columns
-          </Text>
-        </View>
-      </View>
+        {parsedFile && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Detected Schema</Text>
+            {parsedFile.detectedFormat === 'mixed' && parsedFile.mixedAnalysis
+              ? renderMixedSchema(parsedFile.mixedAnalysis)
+              : parsedFile.detectedFormat === 'summary' && parsedFile.summaryMapping
+                ? renderSummarySchema(parsedFile.summaryMapping)
+                : renderTransactionSchema(parsedFile.inferredMapping)}
+          </View>
+        )}
 
-      <View style={styles.bottomPadding} />
-    </ScrollView>
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.ink }]}>Data Status</Text>
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {/* Persistence indicator */}
+            <View style={[styles.persistenceRow, { borderBottomColor: colors.border }]}>
+              <Ionicons
+                name={_hasHydrated ? 'cloud-done' : 'cloud-outline'}
+                size={16}
+                color={_hasHydrated ? colors.positive : colors.muted}
+              />
+              <Text style={[styles.persistenceText, { color: colors.muted }]}>
+                {_hasHydrated ? 'Data persisted locally' : 'Loading saved data...'}
+              </Text>
+            </View>
+
+            <View style={styles.statusRow}>
+              <Ionicons
+                name={transactions.length > 0 ? 'checkmark-circle' : 'alert-circle'}
+                size={24}
+                color={transactions.length > 0 ? colors.positive : colors.muted}
+              />
+              <Text style={[styles.statusText, { color: colors.ink }]}>
+                {transactions.length > 0
+                  ? `${transactions.length} transactions loaded`
+                  : 'No data loaded'}
+              </Text>
+            </View>
+
+            {importMetadata && (
+              <View style={styles.metadataRow}>
+                <Text style={styles.metadataText}>
+                  Last import: {new Date(importMetadata.lastImportDate).toLocaleDateString()}
+                </Text>
+                <Text style={styles.metadataText}>
+                  Source: {importMetadata.sourceFile}
+                </Text>
+                {importMetadata.sheetNames.length > 0 && (
+                  <Text style={styles.metadataText}>
+                    Sheets: {importMetadata.sheetNames.join(', ')}
+                  </Text>
+                )}
+              </View>
+            )}
+
+            {transactions.length > 0 && (
+              <>
+                <View style={styles.statsRow}>
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>
+                      {transactions.filter(t => t.type === 'income').length}
+                    </Text>
+                    <Text style={styles.statLabel}>Income</Text>
+                  </View>
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>
+                      {transactions.filter(t => t.type === 'expense').length}
+                    </Text>
+                    <Text style={styles.statLabel}>Expenses</Text>
+                  </View>
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>
+                      {new Set(transactions.map(t => t.category)).size}
+                    </Text>
+                    <Text style={styles.statLabel}>Categories</Text>
+                  </View>
+                </View>
+
+                <View style={styles.demoRow}>
+                  <View style={styles.demoInfo}>
+                    <Text style={styles.demoTitle}>Demo mode</Text>
+                    <Text style={styles.demoSubtitle}>
+                      Hide currency amounts while keeping percentages
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.demoButton, demoConfig.hideAmounts && styles.demoButtonActive]}
+                    onPress={() => setDemoConfig({ hideAmounts: !demoConfig.hideAmounts })}
+                  >
+                    <Text style={[styles.demoButtonText, demoConfig.hideAmounts && styles.demoButtonTextActive]}>
+                      {demoConfig.hideAmounts ? 'Hidden' : 'Show'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.clearButton}
+                  onPress={handleClearData}
+                >
+                  <Ionicons name="trash" size={18} color={palette.negative} />
+                  <Text style={styles.clearButtonText}>Clear All Data</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>About</Text>
+          <View style={styles.card}>
+            <Text style={styles.aboutText}>Budget Tracker v1.0.0</Text>
+            <Text style={styles.hint}>
+              Supports .xlsx, .xls, and .csv files{'\n'}
+              Auto-detects: Transaction logs & Monthly summaries{'\n'}
+              Intelligently categorizes expense vs income columns
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.bottomPadding} />
+      </ScrollView>
+
+      {/* Google Drive Picker Modal */}
+      {
+        showDrivePicker && accessToken && (
+          <GoogleDrivePicker
+            visible={showDrivePicker}
+            accessToken={accessToken}
+            onSelect={handlePickerSelect}
+            onCancel={() => setShowDrivePicker(false)}
+          />
+        )
+      }
+    </>
   );
 }
 
@@ -1981,6 +2025,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: palette.muted,
     marginTop: 2,
+  },
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.accent,
+    padding: 16,
+    borderRadius: 12,
+    minHeight: 52,
+  },
+  primaryButtonDisabled: {
+    opacity: 0.6,
+  },
+  primaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   segmentedControl: {
     flexDirection: 'row',
