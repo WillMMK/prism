@@ -106,7 +106,7 @@ export async function checkSubscriptionStatus(): Promise<SubscriptionStatus> {
 export async function getPackages(): Promise<PurchasesPackage[]> {
     try {
         const offerings = await Purchases.getOfferings();
-        if (offerings.current?.availablePackages) {
+        if (offerings.current?.availablePackages?.length) {
             return offerings.current.availablePackages;
         }
 
