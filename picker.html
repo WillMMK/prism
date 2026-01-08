@@ -131,85 +131,106 @@
 
     <script src="https://apis.google.com/js/api.js"></script>
     <script>
-        // Configuration
-        const API_KEY = 'AIzaSyBO6TWo1UoHEEzkn4ioE7qXTKRo4x6W7YM';
-        const APP_ID = '907648461438';
-
-        // Get OAuth token from URL params
-        const urlParams = new URLSearchParams(window.location.search);
-        const accessToken = urlParams.get('token');
-        const returnScheme = urlParams.get('scheme') || 'budget-tracker';
-
-        function showStatus(msg, isError) {
-            const el = document.getElementById('status');
-            el.style.display = 'block';
-            el.className = isError ? 'error' : 'status';
-            el.textContent = msg;
+    // Configuration
+    const API_KEY = 'AIzaSyBO6TWo1UoHEEzkn4ioE7qXTKRo4x6W7YM';
+    const APP_ID = '907648461438';
+    
+    // Get params from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const accessToken = urlParams.get('token');
+    const returnScheme = urlParams.get('scheme') || 'budget-tracker';
+    const isEmbedded = urlParams.get('embedded') === 'true';
+    
+    function showStatus(msg, isError) {
+      const el = document.getElementById('status');
+      el.style.display = 'block';
+      el.className = isError ? 'error' : 'status';
+      el.textContent = msg;
+    }
+    
+    function sendResult(data) {
+      if (isEmbedded && window.ReactNativeWebView) {
+        // Send to React Native WebView
+        window.ReactNativeWebView.postMessage(JSON.stringify(data));
+      } else {
+        // Deep link back to app
+        const params = new URLSearchParams(data).toString();
+        const deepLink = `${returnScheme}://picker?${params}`;
+        showStatus('Returning to Prism...', false);
+        window.location.href = deepLink;
+      }
+    }
+    
+    function returnToApp(fileId, fileName) {
+      sendResult({
+        action: 'picked',
+        fileId: fileId,
+        fileName: fileName || 'Spreadsheet'
+      });
+    }
+    
+    function returnCancel() {
+      sendResult({ action: 'cancel' });
+    }
+    
+    function returnError(message) {
+      sendResult({ action: 'error', message: message });
+    }
+    
+    function openPicker() {
+      if (!accessToken) {
+        showStatus('No access token provided. Please try again from the app.', true);
+        returnError('No access token');
+        return;
+      }
+      
+      document.getElementById('pickBtn').disabled = true;
+      showStatus('Loading Google Drive...', false);
+      
+      gapi.load('picker', () => {
+        try {
+          const docsView = new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS)
+            .setMimeTypes('application/vnd.google-apps.spreadsheet')
+            .setMode(google.picker.DocsViewMode.LIST);
+          
+          const picker = new google.picker.PickerBuilder()
+            .addView(docsView)
+            .setOAuthToken(accessToken)
+            .setDeveloperKey(API_KEY)
+            .setAppId(APP_ID)
+            .setTitle('Select Budget Spreadsheet')
+            .setCallback(pickerCallback)
+            .enableFeature(google.picker.Feature.NAV_HIDDEN)
+            .build();
+          
+          picker.setVisible(true);
+          document.getElementById('status').style.display = 'none';
+        } catch (err) {
+          showStatus('Failed to load picker: ' + err.message, true);
+          document.getElementById('pickBtn').disabled = false;
+          returnError(err.message);
         }
-
-        function returnToApp(fileId, fileName) {
-            // Create deep link back to app
-            const deepLink = `${returnScheme}://picker?fileId=${encodeURIComponent(fileId)}&fileName=${encodeURIComponent(fileName || 'Spreadsheet')}`;
-            showStatus('Returning to Prism...', false);
-            window.location.href = deepLink;
-        }
-
-        function returnCancel() {
-            const deepLink = `${returnScheme}://picker?cancelled=true`;
-            window.location.href = deepLink;
-        }
-
-        function openPicker() {
-            if (!accessToken) {
-                showStatus('No access token provided. Please try again from the app.', true);
-                return;
-            }
-
-            document.getElementById('pickBtn').disabled = true;
-            showStatus('Loading Google Drive...', false);
-
-            gapi.load('picker', () => {
-                try {
-                    const docsView = new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS)
-                        .setMimeTypes('application/vnd.google-apps.spreadsheet')
-                        .setMode(google.picker.DocsViewMode.LIST);
-
-                    const picker = new google.picker.PickerBuilder()
-                        .addView(docsView)
-                        .setOAuthToken(accessToken)
-                        .setDeveloperKey(API_KEY)
-                        .setAppId(APP_ID)
-                        .setTitle('Select Budget Spreadsheet')
-                        .setCallback(pickerCallback)
-                        .enableFeature(google.picker.Feature.NAV_HIDDEN)
-                        .build();
-
-                    picker.setVisible(true);
-                    document.getElementById('status').style.display = 'none';
-                } catch (err) {
-                    showStatus('Failed to load picker: ' + err.message, true);
-                    document.getElementById('pickBtn').disabled = false;
-                }
-            });
-        }
-
-        function pickerCallback(data) {
-            if (data.action === google.picker.Action.PICKED) {
-                const doc = data.docs[0];
-                returnToApp(doc.id, doc.name);
-            } else if (data.action === google.picker.Action.CANCEL) {
-                returnCancel();
-            }
-            document.getElementById('pickBtn').disabled = false;
-        }
-
-        // Auto-open picker if token is present
-        if (accessToken) {
-            // Small delay to ensure gapi loads
-            setTimeout(openPicker, 500);
-        } else {
-            showStatus('Missing access token. Please start from the Prism app.', true);
-        }
+      });
+    }
+    
+    function pickerCallback(data) {
+      if (data.action === google.picker.Action.PICKED) {
+        const doc = data.docs[0];
+        returnToApp(doc.id, doc.name);
+      } else if (data.action === google.picker.Action.CANCEL) {
+        returnCancel();
+      }
+      document.getElementById('pickBtn').disabled = false;
+    }
+    
+    // Auto-open picker if token is present
+    if (accessToken) {
+      // Small delay to ensure gapi loads
+      setTimeout(openPicker, 500);
+    } else {
+      showStatus('Missing access token. Please start from the Prism app.', true);
+      returnError('Missing access token');
+    }
     </script>
 </body>
 
