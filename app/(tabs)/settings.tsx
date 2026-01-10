@@ -11,7 +11,7 @@ import {
   Platform,
   Appearance,
 } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, router } from 'expo-router';
 import { useSettingsStore, ThemeOption, CurrencyOption, DateFormatOption } from '../../src/store/settingsStore';
 import { Ionicons } from '@expo/vector-icons';
 import * as AuthSession from 'expo-auth-session';
@@ -1368,12 +1368,22 @@ export default function Settings() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
           <View style={styles.card}>
-            <Text style={styles.aboutText}>Budget Tracker v1.0.0</Text>
+            <Text style={styles.aboutText}>Prism v1.0.0</Text>
             <Text style={styles.hint}>
               Supports .xlsx, .xls, and .csv files{'\n'}
               Auto-detects: Transaction logs & Monthly summaries{'\n'}
               Intelligently categorizes expense vs income columns
             </Text>
+
+            <View style={styles.legalLinks}>
+              <TouchableOpacity onPress={() => router.push('/terms-of-service')}>
+                <Text style={styles.legalLink}>Terms of Service</Text>
+              </TouchableOpacity>
+              <Text style={styles.legalSeparator}>•</Text>
+              <TouchableOpacity onPress={() => router.push('/privacy-policy')}>
+                <Text style={styles.legalLink}>Privacy Policy</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
@@ -1974,6 +1984,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 8,
     lineHeight: 18,
+  },
+  legalLinks: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    gap: 8,
+  },
+  legalLink: {
+    color: palette.accent,
+    fontSize: 13,
+    textDecorationLine: 'underline',
+  },
+  legalSeparator: {
+    color: palette.muted,
+    fontSize: 13,
   },
   bottomPadding: {
     height: 40,

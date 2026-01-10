@@ -276,9 +276,33 @@ export default function PaywallScreen() {
                 </TouchableOpacity>
 
                 {/* Terms */}
-                <Text style={[styles.terms, { color: colors.muted }]}>
-                    Payment will be charged to your Apple ID. Subscription auto-renews unless canceled. By purchasing, you agree to our Terms of Service and Privacy Policy.
-                </Text>
+                <View style={styles.termsContainer}>
+                    <Text style={[styles.terms, { color: colors.muted }]}>
+                        • Subscription Name: Prism Plus{'\n'}
+                        • Length: Monthly or Yearly (as selected){'\n'}
+                        • Price: As displayed above{'\n'}
+                        • Payment will be charged to your iTunes Account at confirmation of purchase{'\n'}
+                        • Subscription automatically renews unless auto-renew is turned off at least 24-hours before the end of the current period{'\n'}
+                        • Your account will be charged for renewal within 24-hours prior to the end of the current period{'\n'}
+                        • You can manage your subscription and turn off auto-renewal by going to your Account Settings after purchase{'\n'}
+                        {'\n'}
+                        By purchasing, you agree to our{' '}
+                    </Text>
+                    <TouchableOpacity onPress={() => router.push('/terms-of-service')}>
+                        <Text style={[styles.termsLink, { color: colors.accent }]}>
+                            Terms of Service
+                        </Text>
+                    </TouchableOpacity>
+                    <Text style={[styles.terms, { color: colors.muted }]}>
+                        {' '}and{' '}
+                    </Text>
+                    <TouchableOpacity onPress={() => router.push('/privacy-policy')}>
+                        <Text style={[styles.termsLink, { color: colors.accent }]}>
+                            Privacy Policy
+                        </Text>
+                    </TouchableOpacity>
+                    <Text style={[styles.terms, { color: colors.muted }]}>.</Text>
+                </View>
             </ScrollView>
         </View>
     );
@@ -444,9 +468,20 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: '500',
     },
+    termsContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'center',
+        alignItems: 'baseline',
+    },
     terms: {
         fontSize: 11,
         textAlign: 'center',
         lineHeight: 16,
+    },
+    termsLink: {
+        fontSize: 11,
+        textDecorationLine: 'underline',
+        fontWeight: '600',
     },
 });
