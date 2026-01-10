@@ -275,33 +275,18 @@ export default function PaywallScreen() {
                     )}
                 </TouchableOpacity>
 
-                {/* Terms */}
-                <View style={styles.termsContainer}>
-                    <Text style={[styles.terms, { color: colors.muted }]}>
-                        • Subscription Name: Prism Plus{'\n'}
-                        • Length: Monthly or Yearly (as selected){'\n'}
-                        • Price: As displayed above{'\n'}
-                        • Payment will be charged to your iTunes Account at confirmation of purchase{'\n'}
-                        • Subscription automatically renews unless auto-renew is turned off at least 24-hours before the end of the current period{'\n'}
-                        • Your account will be charged for renewal within 24-hours prior to the end of the current period{'\n'}
-                        • You can manage your subscription and turn off auto-renewal by going to your Account Settings after purchase{'\n'}
-                        {'\n'}
-                        By purchasing, you agree to our{' '}
-                    </Text>
-                    <TouchableOpacity onPress={() => router.push('/terms-of-service')}>
-                        <Text style={[styles.termsLink, { color: colors.accent }]}>
-                            Terms of Service
-                        </Text>
-                    </TouchableOpacity>
-                    <Text style={[styles.terms, { color: colors.muted }]}>
+                {/* Footer Links */}
+                <View style={styles.footer}>
+                    <Text style={[styles.disclaimer, { color: colors.muted }]}>
+                        By continuing, you agree to our{' '}
+                        <Text style={{ textDecorationLine: 'underline' }} onPress={() => router.push('/terms-of-service')}>Terms of Service</Text>
                         {' '}and{' '}
+                        <Text style={{ textDecorationLine: 'underline' }} onPress={() => router.push('/privacy-policy')}>Privacy Policy</Text>
+                        .{'\n\n'}
+                        Your subscription will automatically renew for the same price and period unless auto-renew is turned off at least 24 hours before the end of the current period.
+                        Your account will be charged for renewal within 24 hours prior to the end of the current period.
+                        You can manage subscriptions and turn off auto-renewal in your iTunes Account Settings after purchase.
                     </Text>
-                    <TouchableOpacity onPress={() => router.push('/privacy-policy')}>
-                        <Text style={[styles.termsLink, { color: colors.accent }]}>
-                            Privacy Policy
-                        </Text>
-                    </TouchableOpacity>
-                    <Text style={[styles.terms, { color: colors.muted }]}>.</Text>
                 </View>
             </ScrollView>
         </View>
@@ -468,20 +453,26 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: '500',
     },
-    termsContainer: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'center',
-        alignItems: 'baseline',
+    footer: {
+        marginTop: 32,
+        marginBottom: 20,
+        alignItems: 'center',
+        gap: 12,
     },
-    terms: {
-        fontSize: 11,
+    disclaimer: {
+        fontSize: 12,
         textAlign: 'center',
-        lineHeight: 16,
     },
-    termsLink: {
-        fontSize: 11,
+    legalLinks: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    legalLink: {
+        fontSize: 12,
         textDecorationLine: 'underline',
-        fontWeight: '600',
+    },
+    legalDivider: {
+        fontSize: 12,
     },
 });
