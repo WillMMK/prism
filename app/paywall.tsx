@@ -275,10 +275,19 @@ export default function PaywallScreen() {
                     )}
                 </TouchableOpacity>
 
-                {/* Terms */}
-                <Text style={[styles.terms, { color: colors.muted }]}>
-                    Payment will be charged to your Apple ID. Subscription auto-renews unless canceled. By purchasing, you agree to our Terms of Service and Privacy Policy.
-                </Text>
+                {/* Footer Links */}
+                <View style={styles.footer}>
+                    <Text style={[styles.disclaimer, { color: colors.muted }]}>
+                        By continuing, you agree to our{' '}
+                        <Text style={{ textDecorationLine: 'underline' }} onPress={() => router.push('/terms-of-service')}>Terms of Service</Text>
+                        {' '}and{' '}
+                        <Text style={{ textDecorationLine: 'underline' }} onPress={() => router.push('/privacy-policy')}>Privacy Policy</Text>
+                        .{'\n\n'}
+                        Your subscription will automatically renew for the same price and period unless auto-renew is turned off at least 24 hours before the end of the current period.
+                        Your account will be charged for renewal within 24 hours prior to the end of the current period.
+                        You can manage subscriptions and turn off auto-renewal in your iTunes Account Settings after purchase.
+                    </Text>
+                </View>
             </ScrollView>
         </View>
     );
@@ -444,9 +453,26 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: '500',
     },
-    terms: {
-        fontSize: 11,
+    footer: {
+        marginTop: 32,
+        marginBottom: 20,
+        alignItems: 'center',
+        gap: 12,
+    },
+    disclaimer: {
+        fontSize: 12,
         textAlign: 'center',
-        lineHeight: 16,
+    },
+    legalLinks: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    legalLink: {
+        fontSize: 12,
+        textDecorationLine: 'underline',
+    },
+    legalDivider: {
+        fontSize: 12,
     },
 });
