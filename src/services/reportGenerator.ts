@@ -572,9 +572,92 @@ export function generateMonthlyReport(
     };
 }
 
+function generateYearlyCategoryInsights(
+    transactions: Transaction[],
+    year: number,
+    prevYear?: number
+): string[] {
+    const insights: string[] = [];
+
+    // Get all categories for the year
+    const yearCategories: Map<string, number> = new Map();
+    const prevYearCategories: Map<string, number> = new Map();
+
+    transactions.forEach((tx) => {
+        const txDate = new Date(tx.date);
+        const txYear = txDate.getFullYear();
+
+        if (tx.type === 'expense' || tx.type === 'rebate') {
+            const amount = Math.abs(tx.signedAmount ?? (tx.type === 'expense' ? -tx.amount : tx.amount));
+
+            if (txYear === year) {
+                yearCategories.set(tx.category, (yearCategories.get(tx.category) || 0) + amount);
+            } else if (prevYear && txYear === prevYear) {
+                prevYearCategories.set(tx.category, (prevYearCategories.get(tx.category) || 0) + amount);
+            }
+        }
+    });
+
+    const yearCategoryArray = Array.from(yearCategories.entries())
+        .map(([category, amount]) => ({ category, amount }))
+        .sort((a, b) => b.amount - a.amount);
+
+    if (yearCategoryArray.length === 0) return insights;
+
+    // Top spending category
+    const topCategory = yearCategoryArray[0];
+    const totalYearSpending = yearCategoryArray.reduce((sum, c) => sum + c.amount, 0);
+    const topPercent = (topCategory.amount / totalYearSpending) * 100;
+
+    insights.push(
+        `${topCategory.category} was your largest expense at ${formatCurrency(topCategory.amount)} (${topPercent.toFixed(0)}% of total spending)`
+    );
+
+    // Year-over-year category changes
+    if (prevYear && prevYearCategories.size > 0) {
+        const changes: Array<{ category: string; change: number; percent: number }> = [];
+
+        yearCategories.forEach((amount, category) => {
+            const prevAmount = prevYearCategories.get(category) || 0;
+            if (prevAmount > 0) {
+                const change = amount - prevAmount;
+                const percent = (change / prevAmount) * 100;
+
+                if (Math.abs(change) > 500 && Math.abs(percent) > 15) {
+                    changes.push({ category, change, percent });
+                }
+            }
+        });
+
+        changes.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+
+        if (changes.length > 0) {
+            const topChange = changes[0];
+            const direction = topChange.change > 0 ? 'increased' : 'decreased';
+            insights.push(
+                `${topChange.category} ${direction} by ${formatCurrency(Math.abs(topChange.change))} vs ${prevYear} (${formatPercent(Math.abs(topChange.percent))} change)`
+            );
+        }
+    }
+
+    // Top 3 categories
+    if (yearCategoryArray.length >= 3) {
+        const top3 = yearCategoryArray.slice(0, 3);
+        const top3Total = top3.reduce((sum, c) => sum + c.amount, 0);
+        const top3Percent = (top3Total / totalYearSpending) * 100;
+
+        insights.push(
+            `Your top 3 categories (${top3.map(c => c.category).join(', ')}) accounted for ${top3Percent.toFixed(0)}% of all spending`
+        );
+    }
+
+    return insights.slice(0, 3);
+}
+
 export function generateYearlyReport(
     year: number,
     monthlyReports: MonthlyFinancialReport[],
+    transactions: Transaction[],
     prevYearTotals?: { income: number; expenses: number; savings: number }
 ): YearlyFinancialReport {
     const totalIncome = monthlyReports.reduce((sum, r) => sum + r.income, 0);
@@ -687,6 +770,10 @@ export function generateYearlyReport(
         }
     }
 
+    // Generate category insights
+    const prevYear = prevYearTotals ? year - 1 : undefined;
+    const categoryInsights = generateYearlyCategoryInsights(transactions, year, prevYear);
+
     return {
         id: `yearly-${year}`,
         year,
@@ -706,6 +793,7 @@ export function generateYearlyReport(
 
         executiveSummary: summary,
         yearHighlights: highlights,
+        categoryInsights: categoryInsights.length > 0 ? categoryInsights : undefined,
         lookAhead: status === 'regression'
             ? 'Consider setting a modest savings target for next year to rebuild momentum.'
             : undefined,

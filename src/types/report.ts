@@ -67,6 +67,7 @@ export interface YearlyFinancialReport {
     // Generated content
     executiveSummary: string;
     yearHighlights: string[]; // Key events/changes
+    categoryInsights?: string[]; // Year-level category analysis
     lookAhead?: string; // Optional forward-looking statement
 }
 

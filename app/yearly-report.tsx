@@ -81,6 +81,7 @@ export default function YearlyReportScreen() {
             return generateMonthlyReport(
                 monthData.month,
                 monthData,
+                transactions,
                 prevData,
                 sameMonthLastYear,
                 sixMonthAvg
@@ -110,7 +111,7 @@ export default function YearlyReportScreen() {
             savings: prevYearMonths.reduce((sum, r) => sum + r.savings, 0),
         } : undefined;
 
-        return generateYearlyReport(targetYear, yearMonthlyReports, prevYearTotals);
+        return generateYearlyReport(targetYear, yearMonthlyReports, transactions, prevYearTotals);
     }, [targetYear, yearMonthlyReports, hasAccess, allMonthlyData]);
 
     // Cache yearly report
@@ -305,6 +306,19 @@ export default function YearlyReportScreen() {
                         </View>
                     ))}
                 </View>
+
+                {/* Category Insights */}
+                {report.categoryInsights && report.categoryInsights.length > 0 && (
+                    <View style={styles.section}>
+                        <Text style={[styles.sectionLabel, { color: colors.muted }]}>Category Breakdown</Text>
+                        {report.categoryInsights.map((insight, index) => (
+                            <View key={index} style={styles.bulletRow}>
+                                <View style={[styles.bulletDot, { backgroundColor: '#F2A15F' }]} />
+                                <Text style={[styles.bulletText, { color: colors.ink }]}>{insight}</Text>
+                            </View>
+                        ))}
+                    </View>
+                )}
 
                 {/* Look Ahead */}
                 {report.lookAhead && (
