@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useBudgetStore } from '../../src/store/budgetStore';
@@ -37,6 +37,7 @@ export default function Transactions() {
   const { transactions, demoConfig, sheetsConfig, importMetadata, _hasHydrated } = useBudgetStore();
   const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const formatCurrencySafe = (amount: number) =>
     demoConfig.hideAmounts ? '•••' : formatCurrency(amount);
 
@@ -48,7 +49,22 @@ export default function Transactions() {
   }
 
   const filteredTransactions = transactions
-    .filter((tx) => filter === 'all' || tx.type === filter)
+    .filter((tx) => {
+      // Filter by type
+      if (filter !== 'all' && tx.type !== filter) return false;
+
+      // Filter by search query
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        const categoryMatch = tx.category.toLowerCase().includes(query);
+        const descriptionMatch = tx.description?.toLowerCase().includes(query);
+        const amountMatch = tx.amount.toString().includes(query);
+
+        if (!categoryMatch && !descriptionMatch && !amountMatch) return false;
+      }
+
+      return true;
+    })
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const renderTransaction = ({ item }: { item: Transaction }) => {
@@ -128,6 +144,22 @@ export default function Transactions() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Ionicons name="search" size={18} color={colors.muted} />
+        <TextInput
+          style={[styles.searchInput, { color: colors.ink }]}
+          placeholder="Search transactions..."
+          placeholderTextColor={colors.muted}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <Ionicons name="close-circle" size={18} color={colors.muted} />
+          </TouchableOpacity>
+        )}
+      </View>
+
       <View style={[styles.filterRow, { backgroundColor: colors.wash }]}>
         {(['all', 'income', 'expense'] as const).map((type) => (
           <TouchableOpacity
@@ -185,6 +217,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: palette.background,
     padding: 20,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: palette.card,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: palette.ink,
   },
   empty: {
     flex: 1,
