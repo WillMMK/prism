@@ -4,7 +4,7 @@
  * Rule-based narrative templates (no LLM) - all data stays on-device
  */
 
-import { MonthlyReport } from '../types/budget';
+import { MonthlyReport, Transaction } from '../types/budget';
 import {
     ReportStatus,
     MonthlyFinancialReport,
@@ -43,6 +43,66 @@ function formatPercent(value: number): string {
 function calculateSavingsRate(income: number, expenses: number): number {
     if (income <= 0) return 0;
     return ((income - expenses) / income) * 100;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Category Analysis
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface CategoryTotal {
+    category: string;
+    amount: number;
+}
+
+function getCategoryTotals(transactions: Transaction[], monthStr: string): CategoryTotal[] {
+    const [year, month] = monthStr.split('-');
+    const totals = new Map<string, number>();
+
+    transactions.forEach((tx) => {
+        const txDate = new Date(tx.date);
+        const txYear = txDate.getFullYear();
+        const txMonth = txDate.getMonth() + 1;
+
+        if (txYear === parseInt(year) && txMonth === parseInt(month)) {
+            if (tx.type === 'expense' || tx.type === 'rebate') {
+                const current = totals.get(tx.category) || 0;
+                const amount = Math.abs(tx.signedAmount ?? (tx.type === 'expense' ? -tx.amount : tx.amount));
+                totals.set(tx.category, current + amount);
+            }
+        }
+    });
+
+    return Array.from(totals.entries())
+        .map(([category, amount]) => ({ category, amount }))
+        .sort((a, b) => b.amount - a.amount);
+}
+
+function getCategorySixMonthAvg(transactions: Transaction[], targetMonth: string): Map<string, number> {
+    const targetDate = new Date(targetMonth + '-01');
+    const avgMap = new Map<string, number>();
+    const countMap = new Map<string, number>();
+
+    // Get previous 6 months (not including target month)
+    for (let i = 1; i <= 6; i++) {
+        const d = new Date(targetDate);
+        d.setMonth(d.getMonth() - i);
+        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+        const monthTotals = getCategoryTotals(transactions, monthKey);
+        monthTotals.forEach(({ category, amount }) => {
+            avgMap.set(category, (avgMap.get(category) || 0) + amount);
+            countMap.set(category, (countMap.get(category) || 0) + 1);
+        });
+    }
+
+    // Calculate averages
+    const result = new Map<string, number>();
+    avgMap.forEach((total, category) => {
+        const count = countMap.get(category) || 1;
+        result.set(category, total / count);
+    });
+
+    return result;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -199,15 +259,26 @@ function generateWhatChanged(
 function generateSafetyMessage(
     status: ReportStatus,
     savingsRate: number,
+    totalSavings: number,
+    avgMonthlyExpenses: number,
     consecutiveRegressions?: number
 ): string {
+    // Calculate emergency fund coverage (in months)
+    const emergencyFundMonths = avgMonthlyExpenses > 0
+        ? totalSavings / avgMonthlyExpenses
+        : 0;
+
     // Safety messages are formalized by status:
-    // Progress → reassurance
-    // Maintenance → neutrality  
-    // Regression → containment
+    // Progress → reassurance with context
+    // Maintenance → neutrality with position
+    // Regression → containment with actionable insight
 
     if (status === 'progress') {
-        if (savingsRate >= 20) {
+        if (savingsRate >= 20 && emergencyFundMonths >= 3) {
+            return `Your savings cushion covers ${emergencyFundMonths.toFixed(1)} months of expenses. You're well-positioned for unexpected costs.`;
+        } else if (emergencyFundMonths >= 2 && emergencyFundMonths < 3) {
+            return `Your emergency fund now covers ${emergencyFundMonths.toFixed(1)} months of expenses — ${(3 - emergencyFundMonths).toFixed(1)} months to reach the 3-month target.`;
+        } else if (savingsRate >= 20) {
             return 'Your savings cushion is healthy. You could handle an unexpected expense without changing course.';
         }
         return 'You are building momentum. This is exactly the kind of month that compounds over time.';
@@ -215,6 +286,9 @@ function generateSafetyMessage(
 
     if (status === 'maintenance') {
         if (savingsRate >= 15) {
+            if (emergencyFundMonths >= 3) {
+                return `Holding steady with ${emergencyFundMonths.toFixed(1)} months of emergency coverage — a strong foundation.`;
+            }
             return 'Holding steady at a strong savings rate. Not every month needs to be a push.';
         }
         return 'You held your ground. Sometimes staying level is the right outcome.';
@@ -233,18 +307,26 @@ function generateSafetyMessage(
     }
 
     // Negative savings
+    if (emergencyFundMonths > 0) {
+        return `You spent more than you earned this month. Your emergency fund can cover ${emergencyFundMonths.toFixed(1)} months — use it if needed, but identify one area to adjust.`;
+    }
     return 'You spent more than you earned this month. Identify one area to adjust, then move on.';
 }
 
 function generateOneDecision(
     status: ReportStatus,
-    savingsRate: number
+    savingsRate: number,
+    categoryInsights?: { topIncrease?: string; amount?: number }
 ): string | undefined {
     if (status === 'progress') {
         return 'Choose whether next month is for continued progress or recovery — either is valid.';
     }
 
     if (status === 'regression') {
+        if (categoryInsights?.topIncrease && categoryInsights.amount) {
+            const reduction = Math.round(categoryInsights.amount * 0.2);
+            return `Consider reducing ${categoryInsights.topIncrease} by 20% (~${formatCurrency(reduction)}) next month — it's your highest discretionary increase.`;
+        }
         if (savingsRate < 5) {
             return 'Identify one category to consciously reduce next month.';
         }
@@ -258,6 +340,146 @@ function generateOneDecision(
     return undefined;
 }
 
+function generateCategoryInsights(
+    transactions: Transaction[],
+    month: string,
+    prevMonth?: string
+): string[] {
+    const insights: string[] = [];
+    const currentCategories = getCategoryTotals(transactions, month);
+
+    if (currentCategories.length === 0) {
+        return insights;
+    }
+
+    const prevCategories = prevMonth
+        ? getCategoryTotals(transactions, prevMonth)
+        : [];
+
+    const prevMap = new Map(prevCategories.map(c => [c.category, c.amount]));
+    const sixMonthAvg = getCategorySixMonthAvg(transactions, month);
+
+    // Find biggest increases and decreases
+    const changes: Array<{ category: string; change: number; percent: number; current: number }> = [];
+
+    currentCategories.forEach(({ category, amount }) => {
+        const prevAmount = prevMap.get(category) || 0;
+        const change = amount - prevAmount;
+        const percent = prevAmount > 0 ? (change / prevAmount) * 100 : 0;
+
+        if (Math.abs(change) > 50 && Math.abs(percent) > 10) {
+            changes.push({ category, change, percent, current: amount });
+        }
+    });
+
+    changes.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+
+    // Report top 2 category changes
+    if (changes.length > 0) {
+        const top = changes[0];
+        const direction = top.change > 0 ? 'increased' : 'decreased';
+        insights.push(
+            `${top.category} ${direction} by ${formatCurrency(Math.abs(top.change))} (${formatPercent(Math.abs(top.percent))}) — the biggest category change`
+        );
+    }
+
+    if (changes.length > 1) {
+        const second = changes[1];
+        const direction = second.change > 0 ? 'rose' : 'dropped';
+        insights.push(
+            `${second.category} also ${direction} significantly (${formatCurrency(Math.abs(second.change))})`
+        );
+    }
+
+    // Detect anomalies (3x above 6-month average)
+    currentCategories.forEach(({ category, amount }) => {
+        const avg = sixMonthAvg.get(category);
+        if (avg && avg > 0 && amount > avg * 3) {
+            insights.push(
+                `⚠️ ${category} spiked to ${formatCurrency(amount)} — 3x your usual ${formatCurrency(avg)}. Check for billing errors or one-time expenses.`
+            );
+        }
+    });
+
+    // Detect new categories
+    if (prevCategories.length > 0) {
+        const prevCategorySet = new Set(prevCategories.map(c => c.category));
+        const newCategories = currentCategories
+            .filter(c => !prevCategorySet.has(c.category) && c.amount > 100)
+            .slice(0, 1);
+
+        newCategories.forEach(({ category, amount }) => {
+            insights.push(
+                `New category: ${category} (${formatCurrency(amount)}) — first appearance`
+            );
+        });
+    }
+
+    return insights.slice(0, 3);
+}
+
+function generatePatterns(
+    transactions: Transaction[],
+    month: string
+): string[] {
+    const patterns: string[] = [];
+    const currentCategories = getCategoryTotals(transactions, month);
+    const sixMonthAvg = getCategorySixMonthAvg(transactions, month);
+
+    // Check for consistently stable categories
+    const stableCategories = currentCategories.filter(({ category, amount }) => {
+        const avg = sixMonthAvg.get(category);
+        if (!avg || avg < 50) return false;
+
+        const variance = Math.abs(amount - avg);
+        const variancePercent = (variance / avg) * 100;
+
+        return variancePercent < 10;
+    });
+
+    if (stableCategories.length > 0 && stableCategories[0].amount > 200) {
+        const stable = stableCategories[0];
+        patterns.push(
+            `${stable.category} is remarkably stable (±10% for 6 months) — highly predictable at ${formatCurrency(stable.amount)}/mo`
+        );
+    }
+
+    // Check for trending categories (looking at last 3 months)
+    const targetDate = new Date(month + '-01');
+    const last3Months: Map<string, number[]> = new Map();
+
+    for (let i = 0; i < 3; i++) {
+        const d = new Date(targetDate);
+        d.setMonth(d.getMonth() - i);
+        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+        const monthTotals = getCategoryTotals(transactions, monthKey);
+        monthTotals.forEach(({ category, amount }) => {
+            if (!last3Months.has(category)) {
+                last3Months.set(category, []);
+            }
+            last3Months.get(category)!.unshift(amount);
+        });
+    }
+
+    // Find trending up categories
+    last3Months.forEach((amounts, category) => {
+        if (amounts.length === 3 && amounts[2] > 100) {
+            const isIncreasing = amounts[1] > amounts[0] && amounts[2] > amounts[1];
+            if (isIncreasing) {
+                const totalIncrease = amounts[2] - amounts[0];
+                if (totalIncrease > 100) {
+                    patterns.push(
+                        `${category} trending up (+${formatCurrency(totalIncrease)} over 3 months) — watch this pattern`
+                    );
+                }
+            }
+        }
+    });
+
+    return patterns.slice(0, 2);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Generators
 // ─────────────────────────────────────────────────────────────────────────────
@@ -265,6 +487,7 @@ function generateOneDecision(
 export function generateMonthlyReport(
     month: string,
     current: MonthlyReport,
+    transactions: Transaction[],
     prev?: MonthlyReport,
     sameMonthLastYear?: MonthlyReport,
     sixMonthAvg?: { income: number; expenses: number; savings: number }
@@ -294,6 +517,31 @@ export function generateMonthlyReport(
         }
         : undefined;
 
+    // Generate category insights and patterns
+    const prevMonthStr = prev ? getPreviousMonth(month) : undefined;
+    const categoryInsights = generateCategoryInsights(transactions, month, prevMonthStr);
+    const patterns = generatePatterns(transactions, month);
+
+    // Extract top category increase for specific recommendations
+    const currentCategories = getCategoryTotals(transactions, month);
+    const prevCategories = prevMonthStr ? getCategoryTotals(transactions, prevMonthStr) : [];
+    const prevMap = new Map(prevCategories.map(c => [c.category, c.amount]));
+
+    let topIncrease: { topIncrease?: string; amount?: number } = {};
+    let maxIncrease = 0;
+
+    currentCategories.forEach(({ category, amount }) => {
+        const prevAmount = prevMap.get(category) || 0;
+        const increase = amount - prevAmount;
+        if (increase > maxIncrease && increase > 50) {
+            maxIncrease = increase;
+            topIncrease = { topIncrease: category, amount: increase };
+        }
+    });
+
+    // Calculate average monthly expenses for emergency fund context
+    const avgMonthlyExpenses = sixMonthAvg?.expenses || current.expenses;
+
     return {
         id: `report-${month}`,
         month,
@@ -317,8 +565,10 @@ export function generateMonthlyReport(
 
         executiveSummary: generateExecutiveSummary(month, status, currentData, prevData),
         whatChanged: generateWhatChanged(currentData, prevData, yearAgoData, sixMonthAvg),
-        safetyMessage: generateSafetyMessage(status, currentRate),
-        oneDecision: generateOneDecision(status, currentRate),
+        categoryInsights: categoryInsights.length > 0 ? categoryInsights : undefined,
+        patterns: patterns.length > 0 ? patterns : undefined,
+        safetyMessage: generateSafetyMessage(status, currentRate, current.savings, avgMonthlyExpenses),
+        oneDecision: generateOneDecision(status, currentRate, topIncrease),
     };
 }
 

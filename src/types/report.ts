@@ -39,6 +39,8 @@ export interface MonthlyFinancialReport {
     // Generated content
     executiveSummary: string;
     whatChanged: string[]; // Max 3 bullets
+    categoryInsights?: string[]; // Category-level analysis (top changes, anomalies)
+    patterns?: string[]; // Detected patterns and trends
     safetyMessage: string;
     oneDecision?: string;
 }
