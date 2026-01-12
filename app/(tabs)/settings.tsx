@@ -894,8 +894,65 @@ export default function Settings() {
     <>
       <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
 
+        {/* Prism Plus Section - Always Visible */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.ink }]}>Prism Plus</Text>
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {isPremium ? (
+              <View style={[styles.premiumActiveCard, { backgroundColor: isDark ? 'rgba(20, 184, 166, 0.1)' : '#F0FDFA', borderColor: colors.accent }]}>
+                <View style={styles.premiumActiveIcon}>
+                  <Ionicons name="checkmark-circle" size={32} color={colors.accent} />
+                </View>
+                <View style={styles.premiumActiveContent}>
+                  <Text style={[styles.premiumActiveTitle, { color: colors.ink }]}>You're a Prism Plus Member</Text>
+                  <Text style={[styles.premiumActiveSubtitle, { color: colors.muted }]}>
+                    Enjoy monthly & yearly financial reports
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[styles.premiumCard, { backgroundColor: isDark ? colors.wash : '#FFFBEB', borderColor: isDark ? colors.border : '#FDE68A' }]}
+                onPress={() => router.push('/paywall')}
+                activeOpacity={0.7}
+              >
+                <View style={styles.premiumCardIcon}>
+                  <Ionicons name="star" size={28} color={isDark ? colors.accent : '#D97706'} />
+                </View>
+                <View style={styles.premiumCardContent}>
+                  <Text style={[styles.premiumCardTitle, { color: isDark ? colors.ink : '#92400E' }]}>
+                    Upgrade to Prism Plus
+                  </Text>
+                  <Text style={[styles.premiumCardSubtitle, { color: isDark ? colors.muted : '#B45309' }]}>
+                    Get monthly & yearly financial reports
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={isDark ? colors.muted : '#D97706'} />
+              </TouchableOpacity>
+            )}
 
-
+            {/* Restore Purchases Button */}
+            <TouchableOpacity
+              style={[styles.restorePurchasesButton, { borderColor: colors.border }]}
+              onPress={async () => {
+                const { restorePurchases } = await import('../../src/services/revenuecat');
+                showLoadingOverlay('Restoring purchases...');
+                const result = await restorePurchases();
+                hideLoadingOverlay();
+                if (result.success) {
+                  const { setPremium } = usePremiumStore.getState();
+                  setPremium(true, 'restored');
+                  Alert.alert('Success', 'Your subscription has been restored.');
+                } else {
+                  Alert.alert('Restore Failed', result.error || 'No active subscription found.');
+                }
+              }}
+            >
+              <Ionicons name="refresh" size={16} color={colors.accent} />
+              <Text style={[styles.restorePurchasesText, { color: colors.accent }]}>Restore Purchases</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.ink }]}>Google Sheets</Text>
@@ -2097,6 +2154,63 @@ const styles = StyleSheet.create({
   },
   segmentedTextActive: {
     color: palette.ink,
+    fontWeight: '600',
+  },
+  premiumActiveCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  premiumActiveIcon: {
+    marginRight: 12,
+  },
+  premiumActiveContent: {
+    flex: 1,
+  },
+  premiumActiveTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  premiumActiveSubtitle: {
+    fontSize: 13,
+  },
+  premiumCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  premiumCardIcon: {
+    marginRight: 12,
+  },
+  premiumCardContent: {
+    flex: 1,
+  },
+  premiumCardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  premiumCardSubtitle: {
+    fontSize: 13,
+  },
+  restorePurchasesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 6,
+  },
+  restorePurchasesText: {
+    fontSize: 14,
     fontWeight: '600',
   },
 });
