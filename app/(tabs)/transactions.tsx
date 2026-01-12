@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, StyleSheet, SectionList, TouchableOpacity, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useBudgetStore } from '../../src/store/budgetStore';
@@ -22,6 +22,31 @@ const formatShortDate = (dateStr: string) => {
     day: 'numeric',
     ...(sameYear ? {} : { year: 'numeric' }),
   });
+};
+
+const formatDateHeader = (dateStr: string) => {
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return dateStr;
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const txDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+  if (txDate.getTime() === today.getTime()) {
+    return 'Today';
+  } else if (txDate.getTime() === yesterday.getTime()) {
+    return 'Yesterday';
+  } else {
+    return date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+      year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+    });
+  }
 };
 
 const getSignedAmount = (transaction: Transaction): number =>
@@ -66,6 +91,32 @@ export default function Transactions() {
       return true;
     })
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  // Group transactions by date
+  const groupedTransactions = filteredTransactions.reduce((acc, tx) => {
+    const dateKey = tx.date.split('T')[0]; // Get YYYY-MM-DD part
+    if (!acc[dateKey]) {
+      acc[dateKey] = [];
+    }
+    acc[dateKey].push(tx);
+    return acc;
+  }, {} as Record<string, Transaction[]>);
+
+  // Convert to section data
+  const sections = Object.keys(groupedTransactions)
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
+    .map((dateKey) => ({
+      title: dateKey,
+      data: groupedTransactions[dateKey],
+    }));
+
+  const renderSectionHeader = ({ section }: { section: { title: string } }) => (
+    <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
+      <Text style={[styles.sectionHeaderText, { color: colors.muted }]}>
+        {formatDateHeader(section.title)}
+      </Text>
+    </View>
+  );
 
   const renderTransaction = ({ item }: { item: Transaction }) => {
     const signed = getSignedAmount(item);
@@ -191,12 +242,14 @@ export default function Transactions() {
         {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? 's' : ''}
       </Text>
 
-      <FlatList
-        data={filteredTransactions}
+      <SectionList
+        sections={sections}
         renderItem={renderTransaction}
+        renderSectionHeader={renderSectionHeader}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        stickySectionHeadersEnabled={false}
       />
 
       <TouchableOpacity style={styles.fab} onPress={() => router.push('/add-transaction')}>
@@ -366,5 +419,17 @@ const styles = StyleSheet.create({
   amount: {
     fontSize: 15,
     fontWeight: '700',
+  },
+  sectionHeader: {
+    paddingTop: 8,
+    paddingBottom: 8,
+    backgroundColor: palette.background,
+  },
+  sectionHeaderText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: palette.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 });
