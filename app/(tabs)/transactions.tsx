@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, SectionList, TouchableOpacity, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useBudgetStore } from '../../src/store/budgetStore';
@@ -24,6 +24,31 @@ const formatShortDate = (dateStr: string) => {
   });
 };
 
+const formatDateHeader = (dateStr: string) => {
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return dateStr;
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const txDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+  if (txDate.getTime() === today.getTime()) {
+    return 'Today';
+  } else if (txDate.getTime() === yesterday.getTime()) {
+    return 'Yesterday';
+  } else {
+    return date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+      year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+    });
+  }
+};
+
 const getSignedAmount = (transaction: Transaction): number =>
   typeof transaction.signedAmount === 'number'
     ? transaction.signedAmount
@@ -37,6 +62,7 @@ export default function Transactions() {
   const { transactions, demoConfig, sheetsConfig, importMetadata, _hasHydrated } = useBudgetStore();
   const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const formatCurrencySafe = (amount: number) =>
     demoConfig.hideAmounts ? '•••' : formatCurrency(amount);
 
@@ -48,8 +74,49 @@ export default function Transactions() {
   }
 
   const filteredTransactions = transactions
-    .filter((tx) => filter === 'all' || tx.type === filter)
+    .filter((tx) => {
+      // Filter by type
+      if (filter !== 'all' && tx.type !== filter) return false;
+
+      // Filter by search query
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        const categoryMatch = tx.category.toLowerCase().includes(query);
+        const descriptionMatch = tx.description?.toLowerCase().includes(query);
+        const amountMatch = tx.amount.toString().includes(query);
+
+        if (!categoryMatch && !descriptionMatch && !amountMatch) return false;
+      }
+
+      return true;
+    })
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  // Group transactions by date
+  const groupedTransactions = filteredTransactions.reduce((acc, tx) => {
+    const dateKey = tx.date.split('T')[0]; // Get YYYY-MM-DD part
+    if (!acc[dateKey]) {
+      acc[dateKey] = [];
+    }
+    acc[dateKey].push(tx);
+    return acc;
+  }, {} as Record<string, Transaction[]>);
+
+  // Convert to section data
+  const sections = Object.keys(groupedTransactions)
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
+    .map((dateKey) => ({
+      title: dateKey,
+      data: groupedTransactions[dateKey],
+    }));
+
+  const renderSectionHeader = ({ section }: { section: { title: string } }) => (
+    <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
+      <Text style={[styles.sectionHeaderText, { color: colors.muted }]}>
+        {formatDateHeader(section.title)}
+      </Text>
+    </View>
+  );
 
   const renderTransaction = ({ item }: { item: Transaction }) => {
     const signed = getSignedAmount(item);
@@ -128,6 +195,22 @@ export default function Transactions() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Ionicons name="search" size={18} color={colors.muted} />
+        <TextInput
+          style={[styles.searchInput, { color: colors.ink }]}
+          placeholder="Search transactions..."
+          placeholderTextColor={colors.muted}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <Ionicons name="close-circle" size={18} color={colors.muted} />
+          </TouchableOpacity>
+        )}
+      </View>
+
       <View style={[styles.filterRow, { backgroundColor: colors.wash }]}>
         {(['all', 'income', 'expense'] as const).map((type) => (
           <TouchableOpacity
@@ -159,12 +242,14 @@ export default function Transactions() {
         {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? 's' : ''}
       </Text>
 
-      <FlatList
-        data={filteredTransactions}
+      <SectionList
+        sections={sections}
         renderItem={renderTransaction}
+        renderSectionHeader={renderSectionHeader}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        stickySectionHeadersEnabled={false}
       />
 
       <TouchableOpacity style={styles.fab} onPress={() => router.push('/add-transaction')}>
@@ -185,6 +270,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: palette.background,
     padding: 20,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: palette.card,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: palette.ink,
   },
   empty: {
     flex: 1,
@@ -317,5 +419,17 @@ const styles = StyleSheet.create({
   amount: {
     fontSize: 15,
     fontWeight: '700',
+  },
+  sectionHeader: {
+    paddingTop: 8,
+    paddingBottom: 8,
+    backgroundColor: palette.background,
+  },
+  sectionHeaderText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: palette.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 });

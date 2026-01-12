@@ -92,6 +92,7 @@ export default function MonthlyReportScreen() {
         const generated = generateMonthlyReport(
             targetMonth,
             currentData,
+            transactions,
             prevData,
             sameMonthLastYear,
             sixMonthAvg
@@ -241,6 +242,32 @@ export default function MonthlyReportScreen() {
                         </View>
                     ))}
                 </View>
+
+                {/* Section 2.5: Category Insights */}
+                {report.categoryInsights && report.categoryInsights.length > 0 && (
+                    <View style={styles.section}>
+                        <Text style={[styles.sectionLabel, { color: colors.muted }]}>Category Details</Text>
+                        {report.categoryInsights.map((insight, index) => (
+                            <View key={index} style={styles.bulletRow}>
+                                <View style={[styles.bulletDot, { backgroundColor: colors.highlight }]} />
+                                <Text style={[styles.bulletText, { color: colors.ink }]}>{insight}</Text>
+                            </View>
+                        ))}
+                    </View>
+                )}
+
+                {/* Section 2.6: Patterns */}
+                {report.patterns && report.patterns.length > 0 && (
+                    <View style={styles.section}>
+                        <Text style={[styles.sectionLabel, { color: colors.muted }]}>Patterns & Trends</Text>
+                        {report.patterns.map((pattern, index) => (
+                            <View key={index} style={styles.bulletRow}>
+                                <View style={[styles.bulletDot, { backgroundColor: colors.accent }]} />
+                                <Text style={[styles.bulletText, { color: colors.ink }]}>{pattern}</Text>
+                            </View>
+                        ))}
+                    </View>
+                )}
 
                 {/* Section 3: Safety & Comfort Check */}
                 <View style={[styles.section, styles.safetySection, { backgroundColor: isDark ? colors.card : '#FEFCE8', borderColor: isDark ? colors.border : '#FEF08A' }]}>

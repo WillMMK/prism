@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   Alert,
   Modal,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useBudgetStore } from '../src/store/budgetStore';
@@ -33,6 +35,8 @@ const palette = {
   highlight: '#F2A15F',
   wash: '#F2ECE4',
 };
+
+const DRAFT_STORAGE_KEY = '@transaction_draft';
 
 const formatDate = (value: string) => value.slice(0, 10);
 
@@ -87,6 +91,9 @@ export default function AddTransaction() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const amountInputRef = useRef<TextInput>(null);
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const categoryOptions = useMemo(() => {
     const counts = new Map<string, number>();
@@ -124,6 +131,125 @@ export default function AddTransaction() {
     }
   }, [category, categoryOptions]);
 
+  // Load draft on mount
+  useEffect(() => {
+    const loadDraft = async () => {
+      try {
+        const draftJson = await AsyncStorage.getItem(DRAFT_STORAGE_KEY);
+        if (draftJson) {
+          const draft = JSON.parse(draftJson);
+          setAmount(draft.amount || '');
+          setAmountParts(draft.amountParts || []);
+          setType(draft.type || 'expense');
+          setCategory(draft.category || '');
+          setNote(draft.note || '');
+          setDate(draft.date || new Date().toISOString().split('T')[0]);
+          setDraftLoaded(true);
+          showToast({ message: 'Draft restored', tone: 'info' });
+        }
+      } catch (error) {
+        // Silently fail if draft can't be loaded
+      }
+    };
+    loadDraft();
+  }, []);
+
+  // Save draft on changes (debounced)
+  useEffect(() => {
+    if (!draftLoaded && amount === '' && amountParts.length === 0 && !note) {
+      // Don't save empty initial state
+      return;
+    }
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = setTimeout(() => {
+      const draft = {
+        amount,
+        amountParts,
+        type,
+        category,
+        note,
+        date,
+      };
+      AsyncStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft)).catch(() => {
+        // Silently fail
+      });
+    }, 500); // Debounce 500ms
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [amount, amountParts, type, category, note, date, draftLoaded]);
+
+  const clearDraft = useCallback(async () => {
+    try {
+      await AsyncStorage.removeItem(DRAFT_STORAGE_KEY);
+      setAmount('');
+      setAmountParts([]);
+      setType('expense');
+      setCategory('');
+      setNote('');
+      setDate(new Date().toISOString().split('T')[0]);
+      setDraftLoaded(false);
+      showToast({ message: 'Draft cleared', tone: 'info' });
+    } catch (error) {
+      // Silently fail
+    }
+  }, [showToast]);
+
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    setShowDatePicker(Platform.OS === 'ios'); // Keep open on iOS
+    if (selectedDate) {
+      const dateString = selectedDate.toISOString().split('T')[0];
+      setDate(dateString);
+    }
+  };
+
+  const formatDateDisplay = (dateStr: string) => {
+    const dateObj = new Date(dateStr + 'T00:00:00');
+    if (isNaN(dateObj.getTime())) return dateStr;
+    return dateObj.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
+
+  const checkForDuplicates = (
+    totalAmount: number,
+    txType: 'income' | 'expense' | 'rebate',
+    txDate: string,
+    txCategory: string
+  ): Transaction | null => {
+    const txDateObj = new Date(txDate);
+    const oneDayMs = 24 * 60 * 60 * 1000;
+
+    // Look for similar transactions in the last 7 days
+    const duplicates = transactions.filter((tx) => {
+      // Must be same category and type
+      if (tx.category !== txCategory) return false;
+      if (tx.type !== txType) return false;
+
+      // Must be within $0.50
+      if (Math.abs(tx.amount - totalAmount) > 0.5) return false;
+
+      // Must be within 24 hours
+      const existingDate = new Date(tx.date);
+      const timeDiff = Math.abs(txDateObj.getTime() - existingDate.getTime());
+      if (timeDiff > oneDayMs) return false;
+
+      return true;
+    });
+
+    return duplicates.length > 0 ? duplicates[0] : null;
+  };
+
   const handleSave = async () => {
     const currentAmount = parseAmount(amount);
     const finalCategory = category.trim();
@@ -144,6 +270,35 @@ export default function AddTransaction() {
     }
     const normalized = combinedParts.map(value => Math.abs(value));
     const totalAmount = normalized.reduce((sum, value) => sum + value, 0);
+
+    // Check for duplicates
+    const duplicate = checkForDuplicates(totalAmount, type, formatDate(date), finalCategory);
+    if (duplicate) {
+      const duplicateDate = new Date(duplicate.date).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+
+      Alert.alert(
+        'Possible Duplicate',
+        `Found similar transaction:\n\n` +
+        `${formatCurrency(duplicate.amount)} - ${duplicate.category}\n` +
+        `Date: ${duplicateDate}\n` +
+        `${duplicate.description ? `Note: ${duplicate.description}\n` : ''}\n` +
+        `Do you want to save anyway?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Save Anyway', onPress: () => proceedWithSave(totalAmount, normalized, finalCategory) }
+        ]
+      );
+      return;
+    }
+
+    proceedWithSave(totalAmount, normalized, finalCategory);
+  };
+
+  const proceedWithSave = async (totalAmount: number, normalized: number[], finalCategory: string) => {
     const transaction = buildTransaction(
       totalAmount,
       normalized,
@@ -155,6 +310,10 @@ export default function AddTransaction() {
     const formattedAmount = formatCurrency(totalAmount);
     showToast({ message: `Saved: ${formattedAmount} to '${finalCategory}'`, tone: 'success' });
     addTransaction(transaction);
+
+    // Clear draft after successful save
+    await AsyncStorage.removeItem(DRAFT_STORAGE_KEY).catch(() => {});
+
     router.back();
 
     if (!sheetsConfig.spreadsheetId || !sheetsConfig.sheetName) {
@@ -224,8 +383,19 @@ export default function AddTransaction() {
             <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
               <Ionicons name="chevron-back" size={22} color={palette.ink} />
             </TouchableOpacity>
-            <Text style={styles.title}>New Transaction</Text>
-            <View style={styles.spacer} />
+            <View style={styles.titleContainer}>
+              <Text style={styles.title}>New Transaction</Text>
+              {draftLoaded && (
+                <Text style={styles.draftBadge}>Draft</Text>
+              )}
+            </View>
+            {draftLoaded ? (
+              <TouchableOpacity style={styles.clearButton} onPress={clearDraft}>
+                <Ionicons name="trash-outline" size={18} color={palette.muted} />
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.spacer} />
+            )}
           </View>
 
           <View style={styles.amountCard}>
@@ -343,15 +513,13 @@ export default function AddTransaction() {
           <View style={styles.sectionRow}>
             <View style={styles.sectionHalf}>
               <Text style={styles.sectionTitle}>Date</Text>
-              <TextInput
-                style={styles.textInput}
-                value={date}
-                onChangeText={setDate}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor="#B0A69C"
-                keyboardType="numbers-and-punctuation"
-                maxLength={10}
-              />
+              <TouchableOpacity
+                style={styles.dateButton}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Ionicons name="calendar-outline" size={16} color={palette.accent} />
+                <Text style={styles.dateButtonText}>{formatDateDisplay(date)}</Text>
+              </TouchableOpacity>
             </View>
             <View style={styles.sectionHalf}>
               <Text style={styles.sectionTitle}>Note</Text>
@@ -364,6 +532,15 @@ export default function AddTransaction() {
               />
             </View>
           </View>
+
+          {showDatePicker && (
+            <DateTimePicker
+              value={new Date(date + 'T00:00:00')}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              onChange={handleDateChange}
+            />
+          )}
 
           <TouchableOpacity
             style={[styles.saveButton, !category.trim() && styles.saveButtonDisabled]}
@@ -439,12 +616,34 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
-  title: {
+  titleContainer: {
     flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: {
     textAlign: 'center',
     fontSize: 18,
     fontWeight: '700',
     color: palette.ink,
+  },
+  draftBadge: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '600',
+    color: palette.highlight,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  clearButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: palette.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: palette.border,
   },
   spacer: {
     width: 36,
@@ -650,6 +849,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
     color: palette.ink,
+  },
+  dateButton: {
+    backgroundColor: palette.card,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: palette.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dateButtonText: {
+    color: palette.ink,
+    fontSize: 13,
+    fontWeight: '500',
   },
   saveButton: {
     backgroundColor: palette.highlight,
