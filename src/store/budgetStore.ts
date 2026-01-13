@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Transaction, Category, GoogleSheetsConfig, DemoConfig, BudgetSummary, CategorySpending, MonthlyReport, YearlyReport, YearOverYearComparison, TrendData } from '../types/budget';
+import { buildDemoTransactions } from '../services/demoData';
 
 export interface ImportMetadata {
   lastImportDate: string;
@@ -30,6 +31,7 @@ interface BudgetState {
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   clearData: () => void;
+  loadDemoData: () => void;
   setHasHydrated: (state: boolean) => void;
 
   // Computed
@@ -100,6 +102,7 @@ export const useBudgetStore = create<BudgetState>()(
       },
       demoConfig: {
         hideAmounts: false,
+        isDemoMode: false,
       },
       importMetadata: null,
       isLoading: false,
@@ -160,12 +163,37 @@ export const useBudgetStore = create<BudgetState>()(
 
       setError: (error) => set({ error }),
 
-      clearData: () => set({
+      clearData: () => set((state) => ({
         transactions: [],
         categories: defaultCategories,
         importMetadata: null,
         error: null,
-      }),
+        demoConfig: {
+          ...state.demoConfig,
+          isDemoMode: false,
+        },
+      })),
+
+      loadDemoData: () => {
+        const demoTransactions = buildDemoTransactions();
+        set({
+          transactions: demoTransactions,
+          importMetadata: {
+            lastImportDate: new Date().toISOString(),
+            sourceFile: 'Demo Data',
+            rowCount: demoTransactions.length,
+            sheetNames: ['Demo'],
+          },
+          demoConfig: {
+            ...get().demoConfig,
+            isDemoMode: true,
+          },
+          sheetsConfig: {
+            ...get().sheetsConfig,
+            isConnected: false,
+          },
+        });
+      },
 
       setHasHydrated: (state) => set({ _hasHydrated: state }),
 
@@ -450,6 +478,7 @@ export const useBudgetStore = create<BudgetState>()(
         categories: state.categories,
         importMetadata: state.importMetadata,
         sheetsConfig: state.sheetsConfig,
+        demoConfig: state.demoConfig,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);

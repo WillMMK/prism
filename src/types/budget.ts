@@ -65,6 +65,7 @@ export interface GoogleSheetsConfig {
 
 export interface DemoConfig {
   hideAmounts: boolean;
+  isDemoMode: boolean;
 }
 
 export interface ChartData {

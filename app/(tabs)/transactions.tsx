@@ -8,6 +8,7 @@ import { TransactionDetailModal } from '../../src/components/TransactionDetailMo
 
 import { useTheme, lightPalette as palette } from '../../src/theme';
 import OnboardingScreen from '../onboarding';
+import DemoModeBanner from '../../src/components/DemoModeBanner';
 
 const formatCurrency = (amount: number) =>
   '$' + amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -66,7 +67,8 @@ export default function Transactions() {
   const formatCurrencySafe = (amount: number) =>
     demoConfig.hideAmounts ? '•••' : formatCurrency(amount);
 
-  const isOnboarded = _hasHydrated && sheetsConfig.isConnected && Boolean(importMetadata);
+  const hasData = transactions.length > 0 || Boolean(importMetadata);
+  const isOnboarded = _hasHydrated && (hasData || sheetsConfig.isConnected);
 
   // Show onboarding screen if not onboarded
   if (_hasHydrated && !isOnboarded) {
@@ -181,6 +183,7 @@ export default function Transactions() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.empty}>
+          {demoConfig.isDemoMode && <DemoModeBanner />}
           <Ionicons name="receipt-outline" size={64} color={colors.muted} />
           <Text style={[styles.title, { color: colors.ink }]}>No Transactions</Text>
           <Text style={[styles.subtitle, { color: colors.muted }]}>Connect to Google Sheets to import data.</Text>
@@ -195,6 +198,7 @@ export default function Transactions() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {demoConfig.isDemoMode && <DemoModeBanner />}
       <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <Ionicons name="search" size={18} color={colors.muted} />
         <TextInput

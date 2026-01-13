@@ -10,6 +10,7 @@ import { PieChart } from '../../src/components/PieChart';
 import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
 import GlassCard from '../../src/components/GlassCard';
 import AuroraBackground from '../../src/components/AuroraBackground';
+import DemoModeBanner from '../../src/components/DemoModeBanner';
 import { useAutoSync } from '../../src/hooks/useAutoSync';
 import { useTheme, lightPalette as palette } from '../../src/theme';
 import OnboardingScreen from '../onboarding';
@@ -179,7 +180,7 @@ const ensureDistinctColors = (items: CategorySpending[]) =>
 export default function Dashboard() {
   const router = useRouter();
   const { colors, isDark } = useTheme();
-  const { transactions, categories, getRecentTransactions, getAvailableYears, demoConfig, sheetsConfig, importMetadata, _hasHydrated } = useBudgetStore();
+  const { transactions, categories, getRecentTransactions, getAvailableYears, demoConfig, sheetsConfig, importMetadata, _hasHydrated, loadDemoData } = useBudgetStore();
   const { isPremium } = usePremiumStore();
   const { showToast } = useToastStore();
   const [categoryScope, setCategoryScope] = useState<Scope>('month');
@@ -229,7 +230,8 @@ export default function Dashboard() {
     return ensureDistinctColors(base);
   }, [scopedTransactions, categories]);
 
-  const isOnboarded = _hasHydrated && sheetsConfig.isConnected && Boolean(importMetadata);
+  const hasData = transactions.length > 0 || Boolean(importMetadata);
+  const isOnboarded = _hasHydrated && (hasData || sheetsConfig.isConnected);
 
   // Show onboarding screen if not onboarded
   if (_hasHydrated && !isOnboarded) {
@@ -256,13 +258,23 @@ export default function Dashboard() {
           <View style={styles.emptyCard}>
             <Ionicons name="wallet-outline" size={48} color={palette.accent} />
             <Text style={styles.emptyTitle}>Budget Tracker</Text>
-            <Text style={styles.emptySubtitle}>Connect your Google Sheet to get started.</Text>
+            <Text style={styles.emptySubtitle}>Load demo data or connect your Google Sheet to get started.</Text>
           </View>
           <View style={styles.emptySteps}>
             <Text style={styles.stepTitle}>Quick start</Text>
             <Text style={styles.stepText}>1. Open Settings</Text>
             <Text style={styles.stepText}>2. Upload your sheet</Text>
             <Text style={styles.stepText}>3. Tap Analyze, then Import</Text>
+          </View>
+          <View style={styles.emptyActions}>
+            <TouchableOpacity style={styles.emptyPrimaryButton} onPress={loadDemoData}>
+              <Ionicons name="sparkles-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
+              <Text style={styles.emptyPrimaryText}>Load demo data</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.emptySecondaryButton} onPress={() => router.push('/settings')}>
+              <Ionicons name="logo-google" size={18} color={palette.ink} style={{ marginRight: 8 }} />
+              <Text style={styles.emptySecondaryText}>Connect Google Sheets</Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
         <TouchableOpacity style={styles.fab} onPress={() => router.push('/add-transaction')}>
@@ -275,7 +287,7 @@ export default function Dashboard() {
   return (
     <AuroraBackground>
       <ScrollView contentContainerStyle={styles.content}>
-
+        {demoConfig.isDemoMode && <DemoModeBanner />}
 
         {/* Budget Overview Card - Premium Design */}
         <GlassCard>
@@ -860,6 +872,38 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderWidth: 1,
     borderColor: '#F0E2D6',
+  },
+  emptyActions: {
+    marginTop: 16,
+    gap: 10,
+  },
+  emptyPrimaryButton: {
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: palette.accent,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyPrimaryText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  emptySecondaryButton: {
+    height: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.card,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptySecondaryText: {
+    color: palette.ink,
+    fontSize: 15,
+    fontWeight: '600',
   },
   stepTitle: {
     color: palette.ink,

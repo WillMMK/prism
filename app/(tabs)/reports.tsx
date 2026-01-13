@@ -9,6 +9,7 @@ import { CategorySpending, Transaction } from '../../src/types/budget';
 import { ReportStatus } from '../../src/types/report';
 import { PieChart } from '../../src/components/PieChart';
 import { Sparkline } from '../../src/components/Sparkline';
+import DemoModeBanner from '../../src/components/DemoModeBanner';
 
 import { useTheme, lightPalette as palette } from '../../src/theme';
 import OnboardingScreen from '../onboarding';
@@ -158,6 +159,7 @@ export default function Reports() {
     sheetsConfig,
     importMetadata,
     _hasHydrated,
+    loadDemoData,
   } = useBudgetStore();
 
   const { getReportList } = useReportStore();
@@ -227,7 +229,8 @@ export default function Reports() {
     return { income, expenses, savings };
   }, [monthlyReports]);
 
-  const isOnboarded = _hasHydrated && sheetsConfig.isConnected && Boolean(importMetadata);
+  const hasData = transactions.length > 0 || Boolean(importMetadata);
+  const isOnboarded = _hasHydrated && (hasData || sheetsConfig.isConnected);
 
   // Show onboarding screen if not onboarded
   if (_hasHydrated && !isOnboarded) {
@@ -265,9 +268,20 @@ export default function Reports() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.empty}>
+          {demoConfig.isDemoMode && <DemoModeBanner />}
           <Ionicons name="bar-chart-outline" size={64} color={colors.muted} />
           <Text style={[styles.title, { color: colors.ink }]}>No Reports</Text>
-          <Text style={[styles.subtitle, { color: colors.muted }]}>Import data to see spending reports.</Text>
+          <Text style={[styles.subtitle, { color: colors.muted }]}>
+            Load demo data or import your sheet to see spending reports.
+          </Text>
+          <TouchableOpacity style={styles.emptyPrimaryButton} onPress={loadDemoData}>
+            <Ionicons name="sparkles-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
+            <Text style={styles.emptyPrimaryText}>Load demo data</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.emptySecondaryButton} onPress={() => router.push('/settings')}>
+            <Ionicons name="logo-google" size={18} color={colors.ink} style={{ marginRight: 8 }} />
+            <Text style={[styles.emptySecondaryText, { color: colors.ink }]}>Connect Google Sheets</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -794,6 +808,7 @@ export default function Reports() {
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
+      {demoConfig.isDemoMode && <DemoModeBanner />}
       {renderReportEntry()}
       {renderTabs()}
       {activeTab === 'overview' && renderOverview()}
@@ -828,6 +843,38 @@ const styles = StyleSheet.create({
     color: palette.muted,
     fontSize: 14,
     marginTop: 8,
+  },
+  emptyPrimaryButton: {
+    marginTop: 16,
+    height: 48,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    backgroundColor: palette.accent,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyPrimaryText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  emptySecondaryButton: {
+    marginTop: 10,
+    height: 48,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.card,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptySecondaryText: {
+    color: palette.ink,
+    fontSize: 15,
+    fontWeight: '600',
   },
   tabContainer: {
     flexDirection: 'row',

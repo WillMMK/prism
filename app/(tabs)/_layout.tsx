@@ -15,14 +15,16 @@ export default function TabsLayout() {
   const router = useRouter();
   const lastClipboardRef = React.useRef<string | null>(null);
   const lastPromptedRef = React.useRef<string | null>(null);
-  const { sheetsConfig, importMetadata, hasHydrated } = useBudgetStore(
+  const { sheetsConfig, importMetadata, hasHydrated, demoConfig } = useBudgetStore(
     useShallow((state) => ({
       sheetsConfig: state.sheetsConfig,
       importMetadata: state.importMetadata,
       hasHydrated: state._hasHydrated,
+      demoConfig: state.demoConfig,
     }))
   );
-  const isOnboarded = hasHydrated && sheetsConfig.isConnected && Boolean(importMetadata);
+  const isOnboarded = hasHydrated && (sheetsConfig.isConnected || demoConfig.isDemoMode) && Boolean(importMetadata);
+
 
   // Clipboard detection for Google Sheets URLs
   // Enabled when Google is authenticated (token exists) but no spreadsheet is linked yet

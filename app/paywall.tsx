@@ -7,12 +7,23 @@ import {
     ActivityIndicator,
     ScrollView,
     Image,
+    Modal,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../src/theme';
 import { usePremiumStore } from '../src/store/premiumStore';
+import { buildDemoTransactions } from '../src/services/demoData';
+import { Transaction, MonthlyReport } from '../src/types/budget';
+import {
+    generateMonthlyReport,
+    generateYearlyReport,
+    getPreviousMonth,
+    getSameMonthLastYear,
+    getSixMonthAverage,
+} from '../src/services/reportGenerator';
+import { ReportStatus } from '../src/types/report';
 import {
     getPackages,
     purchasePackage,
@@ -28,13 +39,98 @@ const FEATURES = [
         icon: 'document-text' as const,
         title: 'Monthly Financial Reports',
         description: 'Get clear insights from your spending patterns',
+        timing: 'Delivered on the 1st of each month',
     },
     {
         icon: 'calendar' as const,
         title: 'Yearly Review',
         description: 'Track your financial progress year over year',
+        timing: 'Delivered on January 1st',
     },
 ];
+
+const STATUS_COLORS: Record<ReportStatus, { bg: string; text: string }> = {
+    progress: { bg: '#D1FAE5', text: '#065F46' },
+    maintenance: { bg: '#FEF3C7', text: '#92400E' },
+    regression: { bg: '#FEE2E2', text: '#991B1B' },
+};
+
+const STATUS_LABELS: Record<ReportStatus, string> = {
+    progress: 'Progress',
+    maintenance: 'Maintenance',
+    regression: 'Regression',
+};
+
+const getSignedAmount = (transaction: Transaction): number =>
+    typeof transaction.signedAmount === 'number'
+        ? transaction.signedAmount
+        : transaction.type === 'income'
+            ? transaction.amount
+            : -transaction.amount;
+
+const getNetExpenseTotal = (transactions: Transaction[]): number => {
+    let outflow = 0;
+    let rebates = 0;
+
+    transactions.forEach((transaction) => {
+        if (transaction.type !== 'expense' && transaction.type !== 'rebate') return;
+        const signed = getSignedAmount(transaction);
+        if (signed < 0) {
+            outflow += Math.abs(signed);
+        } else {
+            rebates += signed;
+        }
+    });
+
+    return Math.max(0, outflow - rebates);
+};
+
+const getMonthKey = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+const formatMonthHeader = (monthStr: string): string => {
+    const [year, month] = monthStr.split('-');
+    const monthIndex = parseInt(month, 10) - 1;
+    const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return `${monthNames[monthIndex]} ${year}`;
+};
+
+const buildMonthlyReports = (transactions: Transaction[]): MonthlyReport[] => {
+    const reports = new Map<string, { income: number; outflow: number; rebates: number }>();
+
+    transactions.forEach((t) => {
+        const date = new Date(t.date);
+        if (isNaN(date.getTime())) return;
+        const monthKey = getMonthKey(date);
+        const current = reports.get(monthKey) || { income: 0, outflow: 0, rebates: 0 };
+        if (t.type === 'income') {
+            current.income += Math.max(0, getSignedAmount(t));
+        } else {
+            const signed = getSignedAmount(t);
+            if (signed < 0) {
+                current.outflow += Math.abs(signed);
+            } else {
+                current.rebates += signed;
+            }
+        }
+        reports.set(monthKey, current);
+    });
+
+    return Array.from(reports.entries())
+        .map(([month, data]) => {
+            const expenses = Math.max(0, data.outflow - data.rebates);
+            return {
+                month,
+                income: data.income,
+                expenses,
+                savings: data.income - expenses,
+            };
+        })
+        .sort((a, b) => b.month.localeCompare(a.month));
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
@@ -51,6 +147,82 @@ export default function PaywallScreen() {
     const [purchasing, setPurchasing] = useState(false);
     const [restoring, setRestoring] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [sampleReportType, setSampleReportType] = useState<'monthly' | 'yearly' | null>(null);
+    const demoTransactions = React.useMemo(() => buildDemoTransactions(), []);
+    const lastFullMonthKey = React.useMemo(() => {
+        const now = new Date();
+        const monthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        return getMonthKey(monthDate);
+    }, []);
+    const lastFullYear = React.useMemo(() => new Date().getFullYear() - 1, []);
+    const demoMonthlyReports = React.useMemo(
+        () => buildMonthlyReports(demoTransactions),
+        [demoTransactions]
+    );
+    const currentMonthKey = React.useMemo(() => {
+        const now = new Date();
+        return getMonthKey(new Date(now.getFullYear(), now.getMonth(), 1));
+    }, []);
+    const completedMonthlyReports = React.useMemo(
+        () => demoMonthlyReports.filter((report) => report.month < currentMonthKey),
+        [demoMonthlyReports, currentMonthKey]
+    );
+    const targetMonth = React.useMemo(
+        () => completedMonthlyReports.find((r) => r.month === lastFullMonthKey)?.month,
+        [completedMonthlyReports, lastFullMonthKey]
+    );
+    const monthlySampleReport = React.useMemo(() => {
+        if (!targetMonth) return null;
+        const currentData = demoMonthlyReports.find((r) => r.month === targetMonth);
+        if (!currentData) return null;
+        const prevMonth = getPreviousMonth(targetMonth);
+        const prevData = demoMonthlyReports.find((r) => r.month === prevMonth);
+        const sameMonthLastYear = getSameMonthLastYear(targetMonth, demoMonthlyReports);
+        const sixMonthAvg = getSixMonthAverage(targetMonth, demoMonthlyReports);
+        return generateMonthlyReport(
+            targetMonth,
+            currentData,
+            demoTransactions,
+            prevData,
+            sameMonthLastYear,
+            sixMonthAvg
+        );
+    }, [demoMonthlyReports, demoTransactions, targetMonth]);
+    const yearlySampleReport = React.useMemo(() => {
+        const yearReports = demoMonthlyReports.filter((report) => report.month.startsWith(`${lastFullYear}-`));
+        if (yearReports.length === 0) return null;
+
+        // Generate full MonthlyFinancialReport objects for each month (with status)
+        const sortedReports = [...yearReports].sort((a, b) => a.month.localeCompare(b.month));
+        const fullMonthlyReports: ReturnType<typeof generateMonthlyReport>[] = [];
+
+        for (let i = 0; i < sortedReports.length; i++) {
+            const currentData = sortedReports[i];
+            const prevData = i > 0 ? sortedReports[i - 1] : undefined;
+            const sameMonthLastYear = getSameMonthLastYear(currentData.month, demoMonthlyReports);
+            const sixMonthAvg = getSixMonthAverage(currentData.month, demoMonthlyReports);
+            const fullReport = generateMonthlyReport(
+                currentData.month,
+                currentData,
+                demoTransactions,
+                prevData,
+                sameMonthLastYear,
+                sixMonthAvg
+            );
+            fullMonthlyReports.push(fullReport);
+        }
+
+        const prevYear = lastFullYear - 1;
+        const prevYearReports = demoMonthlyReports.filter((report) => report.month.startsWith(`${prevYear}-`));
+        const prevYearTotals = prevYearReports.length > 0
+            ? {
+                income: prevYearReports.reduce((sum, r) => sum + r.income, 0),
+                expenses: prevYearReports.reduce((sum, r) => sum + r.expenses, 0),
+                savings: prevYearReports.reduce((sum, r) => sum + r.savings, 0),
+            }
+            : undefined;
+        return generateYearlyReport(lastFullYear, fullMonthlyReports, demoTransactions, prevYearTotals);
+    }, [demoMonthlyReports, demoTransactions, lastFullYear]);
 
     // Load packages on mount
     useEffect(() => {
@@ -172,31 +344,42 @@ export default function PaywallScreen() {
 
                 {/* Features */}
                 <View style={styles.features}>
-                    {FEATURES.map((feature, index) => (
-                        <View
-                            key={index}
-                            style={[
-                                styles.featureItem,
-                                { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : colors.wash },
-                            ]}
-                        >
-                            <View style={[styles.featureIcon, { backgroundColor: isDark ? 'rgba(20, 184, 166, 0.2)' : 'rgba(20, 184, 166, 0.1)' }]}>
-                                <Ionicons name={feature.icon} size={20} color={colors.accent} />
+                    {FEATURES.map((feature, index) => {
+                        const reportType = feature.icon === 'document-text' ? 'monthly' : 'yearly';
+                        return (
+                            <View
+                                key={index}
+                                style={[
+                                    styles.featureItem,
+                                    { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : colors.wash },
+                                ]}
+                            >
+                                <View style={[styles.featureIcon, { backgroundColor: isDark ? 'rgba(20, 184, 166, 0.2)' : 'rgba(20, 184, 166, 0.1)' }]}>
+                                    <Ionicons name={feature.icon} size={20} color={colors.accent} />
+                                </View>
+                                <View style={styles.featureText}>
+                                    <Text style={[styles.featureTitle, { color: colors.ink }]}>
+                                        {feature.title}
+                                    </Text>
+                                    <Text style={[styles.featureDesc, { color: colors.muted }]}>
+                                        {feature.description}
+                                    </Text>
+                                    <Text style={[styles.featureTiming, { color: colors.accent }]}>
+                                        {feature.timing}
+                                    </Text>
+                                    <TouchableOpacity onPress={() => setSampleReportType(reportType)} style={styles.viewSampleLink}>
+                                        <Text style={[styles.viewSampleText, { color: colors.accent }]}>View sample →</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
-                            <View style={styles.featureText}>
-                                <Text style={[styles.featureTitle, { color: colors.ink }]}>
-                                    {feature.title}
-                                </Text>
-                                <Text style={[styles.featureDesc, { color: colors.muted }]}>
-                                    {feature.description}
-                                </Text>
-                            </View>
-                        </View>
-                    ))}
+                        );
+                    })}
                 </View>
                 <Text style={[styles.trustLine, { color: colors.muted }]}>
                     Your data stays in your Google account and on your device.
                 </Text>
+
+
 
                 {/* Pricing */}
                 <View style={[styles.pricingCard, { backgroundColor: isDark ? colors.card : '#FFF', borderColor: colors.accent }]}>
@@ -289,6 +472,238 @@ export default function PaywallScreen() {
                     </Text>
                 </View>
             </ScrollView>
+
+            {/* Sample Report Modal */}
+            <Modal
+                visible={sampleReportType !== null}
+                animationType="slide"
+                presentationStyle="pageSheet"
+                onRequestClose={() => setSampleReportType(null)}
+            >
+                <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
+                    <View style={styles.modalHeader}>
+                        <Text style={[styles.modalTitle, { color: colors.ink }]}>
+                            {sampleReportType === 'monthly' ? 'Monthly Report Sample' : 'Yearly Report Sample'}
+                        </Text>
+                        <TouchableOpacity onPress={() => setSampleReportType(null)} style={styles.modalClose}>
+                            <Ionicons name="close" size={24} color={colors.ink} />
+                        </TouchableOpacity>
+                    </View>
+                    <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
+                        {sampleReportType === 'monthly' && monthlySampleReport && (
+                            <View style={[styles.previewCard, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : colors.wash }]}>
+                                <View style={styles.previewHeader}>
+                                    <Ionicons name="document-text" size={18} color={colors.accent} />
+                                    <Text style={[styles.previewLabel, { color: colors.ink }]}>Monthly Report (Sample)</Text>
+                                    <View style={[styles.statusBadge, { backgroundColor: STATUS_COLORS[monthlySampleReport.status].bg }]}>
+                                        <Text style={[styles.statusText, { color: STATUS_COLORS[monthlySampleReport.status].text }]}>
+                                            {STATUS_LABELS[monthlySampleReport.status]}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <Text style={[styles.previewHeadline, { color: colors.ink }]}>
+                                    {formatMonthHeader(monthlySampleReport.month)}
+                                </Text>
+
+                                {/* Key Numbers */}
+                                <View style={styles.reportMetrics}>
+                                    <View style={styles.metricItem}>
+                                        <Text style={[styles.metricValue, { color: colors.positive }]}>
+                                            ${monthlySampleReport.income.toLocaleString()}
+                                        </Text>
+                                        <Text style={[styles.metricLabel, { color: colors.muted }]}>Income</Text>
+                                    </View>
+                                    <View style={styles.metricItem}>
+                                        <Text style={[styles.metricValue, { color: colors.ink }]}>
+                                            ${monthlySampleReport.expenses.toLocaleString()}
+                                        </Text>
+                                        <Text style={[styles.metricLabel, { color: colors.muted }]}>Expenses</Text>
+                                    </View>
+                                    <View style={styles.metricItem}>
+                                        <Text style={[styles.metricValue, { color: monthlySampleReport.savings >= 0 ? colors.positive : colors.negative }]}>
+                                            ${monthlySampleReport.savings.toLocaleString()}
+                                        </Text>
+                                        <Text style={[styles.metricLabel, { color: colors.muted }]}>Saved</Text>
+                                    </View>
+                                </View>
+
+                                {/* Executive Summary */}
+                                <Text style={[styles.sectionTitle, { color: colors.ink }]}>Summary</Text>
+                                <Text style={[styles.previewBody, { color: colors.muted }]}>
+                                    {monthlySampleReport.executiveSummary}
+                                </Text>
+
+                                {/* What Changed */}
+                                <Text style={[styles.sectionTitle, { color: colors.ink }]}>What Changed</Text>
+                                {monthlySampleReport.whatChanged.map((item, index) => (
+                                    <View key={`change-${index}`} style={styles.previewBullet}>
+                                        <Ionicons name="chevron-forward" size={14} color={colors.accent} />
+                                        <Text style={[styles.previewBulletText, { color: colors.muted }]}>{item}</Text>
+                                    </View>
+                                ))}
+
+                                {/* Category Insights */}
+                                {monthlySampleReport.categoryInsights && monthlySampleReport.categoryInsights.length > 0 && (
+                                    <>
+                                        <Text style={[styles.sectionTitle, { color: colors.ink }]}>Category Insights</Text>
+                                        {monthlySampleReport.categoryInsights.map((item, index) => (
+                                            <View key={`cat-${index}`} style={styles.previewBullet}>
+                                                <Ionicons name="analytics" size={14} color={colors.accent} />
+                                                <Text style={[styles.previewBulletText, { color: colors.muted }]}>{item}</Text>
+                                            </View>
+                                        ))}
+                                    </>
+                                )}
+
+                                {/* Patterns */}
+                                {monthlySampleReport.patterns && monthlySampleReport.patterns.length > 0 && (
+                                    <>
+                                        <Text style={[styles.sectionTitle, { color: colors.ink }]}>Patterns Detected</Text>
+                                        {monthlySampleReport.patterns.map((item, index) => (
+                                            <View key={`pattern-${index}`} style={styles.previewBullet}>
+                                                <Ionicons name="trending-up" size={14} color={colors.accent} />
+                                                <Text style={[styles.previewBulletText, { color: colors.muted }]}>{item}</Text>
+                                            </View>
+                                        ))}
+                                    </>
+                                )}
+
+                                {/* Safety Message */}
+                                <View style={[styles.safetyBox, { backgroundColor: isDark ? 'rgba(20,184,166,0.1)' : 'rgba(20,184,166,0.08)' }]}>
+                                    <Ionicons name="shield-checkmark" size={18} color={colors.accent} />
+                                    <Text style={[styles.safetyText, { color: colors.ink }]}>
+                                        {monthlySampleReport.safetyMessage}
+                                    </Text>
+                                </View>
+
+                                {/* One Decision */}
+                                {monthlySampleReport.oneDecision && (
+                                    <View style={[styles.decisionBox, { borderColor: colors.accent }]}>
+                                        <Text style={[styles.decisionLabel, { color: colors.accent }]}>ONE DECISION</Text>
+                                        <Text style={[styles.decisionText, { color: colors.ink }]}>
+                                            {monthlySampleReport.oneDecision}
+                                        </Text>
+                                    </View>
+                                )}
+
+                                <Text style={[styles.previewNote, { color: colors.muted, marginTop: 20 }]}>
+                                    ✨ This is a sample generated from demo data. Upgrade to see reports based on your real transactions.
+                                </Text>
+                            </View>
+                        )}
+                        {sampleReportType === 'yearly' && yearlySampleReport && (
+                            <View style={[styles.previewCard, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : colors.wash }]}>
+                                <View style={styles.previewHeader}>
+                                    <Ionicons name="calendar" size={18} color={colors.accent} />
+                                    <Text style={[styles.previewLabel, { color: colors.ink }]}>Yearly Report (Sample)</Text>
+                                    <View style={[styles.statusBadge, { backgroundColor: STATUS_COLORS[yearlySampleReport.status].bg }]}>
+                                        <Text style={[styles.statusText, { color: STATUS_COLORS[yearlySampleReport.status].text }]}>
+                                            {STATUS_LABELS[yearlySampleReport.status]}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <Text style={[styles.previewHeadline, { color: colors.ink }]}>
+                                    {yearlySampleReport.year} Annual Summary
+                                </Text>
+
+                                {/* Key Numbers */}
+                                <View style={styles.reportMetrics}>
+                                    <View style={styles.metricItem}>
+                                        <Text style={[styles.metricValue, { color: colors.positive }]}>
+                                            ${yearlySampleReport.totalIncome.toLocaleString()}
+                                        </Text>
+                                        <Text style={[styles.metricLabel, { color: colors.muted }]}>Total Income</Text>
+                                    </View>
+                                    <View style={styles.metricItem}>
+                                        <Text style={[styles.metricValue, { color: colors.ink }]}>
+                                            ${yearlySampleReport.totalExpenses.toLocaleString()}
+                                        </Text>
+                                        <Text style={[styles.metricLabel, { color: colors.muted }]}>Total Spent</Text>
+                                    </View>
+                                    <View style={styles.metricItem}>
+                                        <Text style={[styles.metricValue, { color: yearlySampleReport.totalSavings >= 0 ? colors.positive : colors.negative }]}>
+                                            ${yearlySampleReport.totalSavings.toLocaleString()}
+                                        </Text>
+                                        <Text style={[styles.metricLabel, { color: colors.muted }]}>Net Saved</Text>
+                                    </View>
+                                </View>
+
+                                {/* Savings Rate */}
+                                <View style={styles.savingsRateRow}>
+                                    <Text style={[styles.savingsRateLabel, { color: colors.muted }]}>Savings Rate:</Text>
+                                    <Text style={[styles.savingsRateValue, { color: colors.accent }]}>
+                                        {yearlySampleReport.savingsRate.toFixed(1)}%
+                                    </Text>
+                                </View>
+
+                                {/* Monthly Breakdown */}
+                                <View style={styles.monthlyBreakdown}>
+                                    <View style={[styles.breakdownItem, { backgroundColor: STATUS_COLORS.progress.bg }]}>
+                                        <Text style={[styles.breakdownNumber, { color: STATUS_COLORS.progress.text }]}>
+                                            {yearlySampleReport.progressMonths}
+                                        </Text>
+                                        <Text style={[styles.breakdownLabel, { color: STATUS_COLORS.progress.text }]}>Progress</Text>
+                                    </View>
+                                    <View style={[styles.breakdownItem, { backgroundColor: STATUS_COLORS.maintenance.bg }]}>
+                                        <Text style={[styles.breakdownNumber, { color: STATUS_COLORS.maintenance.text }]}>
+                                            {yearlySampleReport.maintenanceMonths}
+                                        </Text>
+                                        <Text style={[styles.breakdownLabel, { color: STATUS_COLORS.maintenance.text }]}>Maintenance</Text>
+                                    </View>
+                                    <View style={[styles.breakdownItem, { backgroundColor: STATUS_COLORS.regression.bg }]}>
+                                        <Text style={[styles.breakdownNumber, { color: STATUS_COLORS.regression.text }]}>
+                                            {yearlySampleReport.regressionMonths}
+                                        </Text>
+                                        <Text style={[styles.breakdownLabel, { color: STATUS_COLORS.regression.text }]}>Regression</Text>
+                                    </View>
+                                </View>
+
+                                {/* Executive Summary */}
+                                <Text style={[styles.sectionTitle, { color: colors.ink }]}>Year in Review</Text>
+                                <Text style={[styles.previewBody, { color: colors.muted }]}>
+                                    {yearlySampleReport.executiveSummary}
+                                </Text>
+
+                                {/* Highlights */}
+                                <Text style={[styles.sectionTitle, { color: colors.ink }]}>Key Highlights</Text>
+                                {yearlySampleReport.yearHighlights.map((item, index) => (
+                                    <View key={`highlight-${index}`} style={styles.previewBullet}>
+                                        <Ionicons name="star" size={14} color={colors.accent} />
+                                        <Text style={[styles.previewBulletText, { color: colors.muted }]}>{item}</Text>
+                                    </View>
+                                ))}
+
+                                {/* Category Insights */}
+                                {yearlySampleReport.categoryInsights && yearlySampleReport.categoryInsights.length > 0 && (
+                                    <>
+                                        <Text style={[styles.sectionTitle, { color: colors.ink }]}>Category Analysis</Text>
+                                        {yearlySampleReport.categoryInsights.map((item, index) => (
+                                            <View key={`cat-${index}`} style={styles.previewBullet}>
+                                                <Ionicons name="pie-chart" size={14} color={colors.accent} />
+                                                <Text style={[styles.previewBulletText, { color: colors.muted }]}>{item}</Text>
+                                            </View>
+                                        ))}
+                                    </>
+                                )}
+
+                                {/* Look Ahead */}
+                                {yearlySampleReport.lookAhead && (
+                                    <View style={[styles.decisionBox, { borderColor: colors.accent }]}>
+                                        <Text style={[styles.decisionLabel, { color: colors.accent }]}>LOOKING AHEAD</Text>
+                                        <Text style={[styles.decisionText, { color: colors.ink }]}>
+                                            {yearlySampleReport.lookAhead}
+                                        </Text>
+                                    </View>
+                                )}
+
+                                <Text style={[styles.previewNote, { color: colors.muted, marginTop: 20 }]}>
+                                    ✨ This is a sample generated from demo data. Upgrade to see reports based on your real transactions.
+                                </Text>
+                            </View>
+                        )}
+                    </ScrollView>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -366,10 +781,79 @@ const styles = StyleSheet.create({
     featureDesc: {
         fontSize: 13,
     },
+    featureTiming: {
+        fontSize: 12,
+        fontWeight: '500',
+        marginTop: 4,
+    },
     trustLine: {
         fontSize: 12,
         textAlign: 'center',
         marginBottom: 16,
+    },
+    previewSection: {
+        marginBottom: 24,
+    },
+    previewTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+    },
+    previewSubtitle: {
+        fontSize: 13,
+        marginTop: 6,
+        marginBottom: 12,
+    },
+    previewCard: {
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 12,
+    },
+    previewHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 12,
+        flexWrap: 'wrap',
+    },
+    previewLabel: {
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    previewNote: {
+        fontSize: 12,
+        marginTop: 10,
+    },
+    previewHeadline: {
+        fontSize: 16,
+        fontWeight: '700',
+        marginBottom: 8,
+    },
+    previewBody: {
+        fontSize: 13,
+        lineHeight: 18,
+        marginBottom: 10,
+    },
+    previewBullet: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginBottom: 6,
+    },
+    previewBulletText: {
+        fontSize: 12,
+        lineHeight: 16,
+        flex: 1,
+    },
+    statusBadge: {
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 999,
+    },
+    statusText: {
+        fontSize: 11,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        letterSpacing: 0.6,
     },
     pricingCard: {
         alignItems: 'center',
@@ -474,5 +958,123 @@ const styles = StyleSheet.create({
     },
     legalDivider: {
         fontSize: 12,
+    },
+    viewSampleLink: {
+        marginTop: 4,
+    },
+    viewSampleText: {
+        fontSize: 13,
+        fontWeight: '500',
+    },
+    modalContainer: {
+        flex: 1,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 20,
+        paddingTop: 20,
+        paddingBottom: 12,
+    },
+    modalTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+    },
+    modalClose: {
+        padding: 4,
+    },
+    modalContent: {
+        paddingHorizontal: 20,
+        paddingBottom: 40,
+    },
+    reportMetrics: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginVertical: 16,
+        paddingVertical: 12,
+        borderTopWidth: 1,
+        borderBottomWidth: 1,
+        borderColor: 'rgba(128,128,128,0.2)',
+    },
+    metricItem: {
+        alignItems: 'center',
+        flex: 1,
+    },
+    metricValue: {
+        fontSize: 18,
+        fontWeight: '700',
+    },
+    metricLabel: {
+        fontSize: 11,
+        marginTop: 4,
+    },
+    sectionTitle: {
+        fontSize: 14,
+        fontWeight: '700',
+        marginTop: 16,
+        marginBottom: 8,
+    },
+    safetyBox: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 10,
+        padding: 14,
+        borderRadius: 12,
+        marginTop: 16,
+    },
+    safetyText: {
+        fontSize: 13,
+        lineHeight: 18,
+        flex: 1,
+    },
+    decisionBox: {
+        borderWidth: 1,
+        borderRadius: 12,
+        padding: 14,
+        marginTop: 16,
+    },
+    decisionLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        letterSpacing: 0.5,
+        marginBottom: 6,
+    },
+    decisionText: {
+        fontSize: 14,
+        lineHeight: 20,
+    },
+    savingsRateRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginTop: 8,
+    },
+    savingsRateLabel: {
+        fontSize: 13,
+    },
+    savingsRateValue: {
+        fontSize: 18,
+        fontWeight: '700',
+    },
+    monthlyBreakdown: {
+        flexDirection: 'row',
+        gap: 8,
+        marginTop: 16,
+    },
+    breakdownItem: {
+        flex: 1,
+        alignItems: 'center',
+        paddingVertical: 10,
+        borderRadius: 10,
+    },
+    breakdownNumber: {
+        fontSize: 20,
+        fontWeight: '700',
+    },
+    breakdownLabel: {
+        fontSize: 10,
+        fontWeight: '600',
+        marginTop: 2,
     },
 });

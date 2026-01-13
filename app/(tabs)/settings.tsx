@@ -27,6 +27,7 @@ import { useAutoSync } from '../../src/hooks/useAutoSync';
 import { useToastStore } from '../../src/store/toastStore';
 import { useTheme, lightPalette as palette } from '../../src/theme';
 import { GoogleDrivePicker, PickedFile } from '../../src/components/GoogleDrivePicker';
+import DemoModeBanner from '../../src/components/DemoModeBanner';
 
 
 
@@ -103,6 +104,7 @@ export default function Settings() {
     demoConfig,
     setDemoConfig,
     upsertCategories,
+    loadDemoData,
   } = useBudgetStore();
   const { show: showLoadingOverlay, hide: hideLoadingOverlay } = useLoadingOverlay();
   const { showToast } = useToastStore();
@@ -412,6 +414,7 @@ export default function Settings() {
         sourceFile: selectedSpreadsheet.name,
         sheetNames: selectedGoogleSheets,
       });
+      setDemoConfig({ isDemoMode: false });
       setSheetsConfig({
         spreadsheetId: selectedSpreadsheet.id,
         sheetName: selectedGoogleSheets[0],
@@ -480,6 +483,7 @@ export default function Settings() {
           sourceFile: selectedSpreadsheet?.name || 'Google Sheets',
           sheetNames: sheetsConfig.selectedTabs || [],
         });
+        setDemoConfig({ isDemoMode: false });
         setSheetsConfig({
           ...sheetsConfig,
           lastKnownTabs: availableTitles,
@@ -661,6 +665,7 @@ export default function Settings() {
         sourceFile: fileName || 'Unknown',
         sheetNames: selectedSheets,
       });
+      setDemoConfig({ isDemoMode: false });
 
       // Count income vs expense
       const incomeCount = importedTransactions.filter(t => t.type === 'income').length;
@@ -707,6 +712,11 @@ export default function Settings() {
         },
       ]
     );
+  };
+
+  const handleLoadDemoData = () => {
+    loadDemoData();
+    Alert.alert('Demo data loaded', 'Sample transactions are ready to explore.');
   };
 
   // Render mixed format schema
@@ -893,6 +903,7 @@ export default function Settings() {
   return (
     <>
       <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
+        {demoConfig.isDemoMode && <DemoModeBanner />}
 
         {/* Prism Plus Section - Always Visible */}
         <View style={styles.section}>
@@ -1353,6 +1364,16 @@ export default function Settings() {
                   : 'No data loaded'}
               </Text>
             </View>
+
+            {transactions.length === 0 && (
+              <TouchableOpacity
+                style={[styles.importButton, { backgroundColor: colors.accent }]}
+                onPress={handleLoadDemoData}
+              >
+                <Ionicons name="sparkles-outline" size={18} color="#fff" />
+                <Text style={styles.buttonText}>Load demo data</Text>
+              </TouchableOpacity>
+            )}
 
             {importMetadata && (
               <View style={styles.metadataRow}>

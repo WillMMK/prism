@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../src/theme';
 import AuroraBackground from '../src/components/AuroraBackground';
+import { useBudgetStore } from '../src/store/budgetStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Onboarding - Promise Screen
@@ -22,10 +23,16 @@ export default function OnboardingScreen() {
     const { colors, isDark } = useTheme();
     const insets = useSafeAreaInsets();
     const [isWhyVisible, setWhyVisible] = useState(false);
+    const { loadDemoData } = useBudgetStore();
 
     const handleContinue = () => {
         // Navigate to settings to connect Google Sheet
         router.replace('/settings');
+    };
+
+    const handleDemo = () => {
+        loadDemoData();
+        router.replace('/(tabs)');
     };
 
     return (
@@ -81,6 +88,13 @@ export default function OnboardingScreen() {
                 >
                     <Ionicons name="logo-google" size={20} color="#FFF" style={{ marginRight: 10 }} />
                     <Text style={styles.ctaText}>Select a Google Sheet</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.secondaryButton, { borderColor: '#000' }]}
+                    onPress={handleDemo}
+                >
+                    <Ionicons name="document-text-outline" size={18} color={colors.ink} style={{ marginRight: 8 }} />
+                    <Text style={[styles.secondaryText, { color: colors.ink }]}>Try demo data</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                     style={styles.whyLink}
@@ -219,6 +233,19 @@ const styles = StyleSheet.create({
     ctaText: {
         color: '#FFF',
         fontSize: 17,
+        fontWeight: '600',
+    },
+    secondaryButton: {
+        marginTop: 12,
+        height: 52,
+        borderRadius: 16,
+        borderWidth: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    secondaryText: {
+        fontSize: 16,
         fontWeight: '600',
     },
     whyLink: {
