@@ -16,5 +16,8 @@ export const typography = {
         lg: 20,
         xl: 24,
         xxl: 32,
+        hero: 40,
+        display: 48,
     },
 };
+

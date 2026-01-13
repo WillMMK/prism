@@ -11,6 +11,8 @@ export const lightPalette = {
   border: '#E6DED4',
   wash: '#F2ECE4',
   highlight: '#F2A15F',
+  gradientStart: '#F0F4FD',
+  gradientEnd: '#F6F3EF',
 };
 
 export const darkPalette = {
@@ -25,6 +27,9 @@ export const darkPalette = {
   border: '#2A2A2A',
   wash: '#27272A',
   highlight: '#FDBA74',
+  gradientStart: '#1A1A2E',
+  gradientEnd: '#121212',
 };
 
 export type Palette = typeof lightPalette;
+

@@ -221,11 +221,7 @@ export default function Transactions() {
             key={type}
             style={[
               styles.filterButton,
-              filter === type && {
-                backgroundColor: colors.card,
-                borderWidth: 1,
-                borderColor: colors.border
-              }
+              filter === type && styles.filterActive
             ]}
             onPress={() => setFilter(type)}
           >
@@ -279,12 +275,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: palette.card,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: palette.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
     gap: 8,
   },
   searchInput: {
@@ -339,8 +338,11 @@ const styles = StyleSheet.create({
   },
   filterActive: {
     backgroundColor: palette.card,
-    borderWidth: 1,
-    borderColor: palette.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
   },
   filterText: {
     color: palette.muted,
@@ -376,14 +378,17 @@ const styles = StyleSheet.create({
   },
   transactionCard: {
     backgroundColor: palette.card,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
     marginBottom: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: palette.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   transactionLeft: {
     flexDirection: 'row',
