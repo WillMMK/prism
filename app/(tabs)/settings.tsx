@@ -22,6 +22,7 @@ import { SheetWriteMode } from '../../src/types/budget';
 import { googleSheetsService, GOOGLE_AUTH_CONFIG, SpreadsheetFile, SheetInfo, extractSpreadsheetId } from '../../src/services/googleSheets';
 import { useLoadingOverlay } from '../../src/store/loadingOverlayStore';
 import { usePremiumStore } from '../../src/store/premiumStore';
+import { useReportStore } from '../../src/store/reportStore';
 import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
 import { useAutoSync } from '../../src/hooks/useAutoSync';
 import { useToastStore } from '../../src/store/toastStore';
@@ -1431,6 +1432,31 @@ export default function Settings() {
                     </Text>
                   </TouchableOpacity>
                 </View>
+
+                {isPremium && (
+                  <TouchableOpacity
+                    style={styles.clearButton}
+                    onPress={() => {
+                      Alert.alert(
+                        'Clear Report Cache',
+                        'This will regenerate all reports with the latest format. Continue?',
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          {
+                            text: 'Clear Cache',
+                            onPress: () => {
+                              useReportStore.getState().clearReports();
+                              Alert.alert('Done', 'Report cache cleared. Your reports will regenerate fresh.');
+                            }
+                          }
+                        ]
+                      );
+                    }}
+                  >
+                    <Ionicons name="refresh" size={18} color={colors.accent} />
+                    <Text style={[styles.clearButtonText, { color: colors.accent }]}>Refresh Reports</Text>
+                  </TouchableOpacity>
+                )}
 
                 <TouchableOpacity
                   style={styles.clearButton}
