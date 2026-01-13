@@ -577,8 +577,8 @@ const styles = StyleSheet.create({
   heroCard: {
     backgroundColor: palette.card,
     borderRadius: 24,
-    padding: 24,
-    marginBottom: 20,
+    padding: 28,
+    marginBottom: 28,
     shadowColor: '#000',
     shadowOpacity: 0.06,
     shadowRadius: 12,
@@ -654,9 +654,10 @@ const styles = StyleSheet.create({
   },
   heroAmount: {
     color: palette.ink,
-    fontSize: 40,
+    fontSize: 48,
     fontWeight: '700',
-    marginTop: 12,
+    marginTop: 16,
+    letterSpacing: -1,
   },
   heroStats: {
     flexDirection: 'row',
@@ -698,7 +699,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 14,
+    marginTop: 8,
   },
   sectionHeaderInline: {
     flexDirection: 'row',
@@ -708,8 +710,8 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: palette.ink,
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: '700',
   },
   sectionHint: {
     color: palette.muted,

@@ -9,6 +9,7 @@ import { TransactionDetailModal } from '../../src/components/TransactionDetailMo
 import { useTheme, lightPalette as palette } from '../../src/theme';
 import OnboardingScreen from '../onboarding';
 import DemoModeBanner from '../../src/components/DemoModeBanner';
+import AuroraBackground from '../../src/components/AuroraBackground';
 
 const formatCurrency = (amount: number) =>
   '$' + amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -197,71 +198,73 @@ export default function Transactions() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {demoConfig.isDemoMode && <DemoModeBanner />}
-      <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <Ionicons name="search" size={18} color={colors.muted} />
-        <TextInput
-          style={[styles.searchInput, { color: colors.ink }]}
-          placeholder="Search transactions..."
-          placeholderTextColor={colors.muted}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Ionicons name="close-circle" size={18} color={colors.muted} />
-          </TouchableOpacity>
-        )}
-      </View>
+    <AuroraBackground>
+      <View style={[styles.container, { backgroundColor: 'transparent' }]}>
+        {demoConfig.isDemoMode && <DemoModeBanner />}
+        <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Ionicons name="search" size={18} color={colors.muted} />
+          <TextInput
+            style={[styles.searchInput, { color: colors.ink }]}
+            placeholder="Search transactions..."
+            placeholderTextColor={colors.muted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle" size={18} color={colors.muted} />
+            </TouchableOpacity>
+          )}
+        </View>
 
-      <View style={[styles.filterRow, { backgroundColor: colors.wash }]}>
-        {(['all', 'income', 'expense'] as const).map((type) => (
-          <TouchableOpacity
-            key={type}
-            style={[
-              styles.filterButton,
-              filter === type && styles.filterActive
-            ]}
-            onPress={() => setFilter(type)}
-          >
-            <Text
+        <View style={[styles.filterRow, { backgroundColor: colors.wash }]}>
+          {(['all', 'income', 'expense'] as const).map((type) => (
+            <TouchableOpacity
+              key={type}
               style={[
-                styles.filterText,
-                { color: colors.muted },
-                filter === type && { color: colors.ink }
+                styles.filterButton,
+                filter === type && styles.filterActive
               ]}
+              onPress={() => setFilter(type)}
             >
-              {type === 'all' ? 'All' : type === 'income' ? 'Income' : 'Expenses'}
-            </Text>
-          </TouchableOpacity>
-        ))}
+              <Text
+                style={[
+                  styles.filterText,
+                  { color: colors.muted },
+                  filter === type && { color: colors.ink }
+                ]}
+              >
+                {type === 'all' ? 'All' : type === 'income' ? 'Income' : 'Expenses'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={[styles.count, { color: colors.muted }]}>
+          {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? 's' : ''}
+        </Text>
+
+        <SectionList
+          sections={sections}
+          renderItem={renderTransaction}
+          renderSectionHeader={renderSectionHeader}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
+          stickySectionHeadersEnabled={false}
+        />
+
+        <TouchableOpacity style={styles.fab} onPress={() => router.push('/add-transaction')}>
+          <Ionicons name="add" size={24} color="#fff" />
+        </TouchableOpacity>
+
+        <TransactionDetailModal
+          visible={selectedTransaction !== null}
+          transaction={selectedTransaction}
+          onClose={() => setSelectedTransaction(null)}
+        />
       </View>
-
-      <Text style={[styles.count, { color: colors.muted }]}>
-        {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? 's' : ''}
-      </Text>
-
-      <SectionList
-        sections={sections}
-        renderItem={renderTransaction}
-        renderSectionHeader={renderSectionHeader}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        showsVerticalScrollIndicator={false}
-        stickySectionHeadersEnabled={false}
-      />
-
-      <TouchableOpacity style={styles.fab} onPress={() => router.push('/add-transaction')}>
-        <Ionicons name="add" size={24} color="#fff" />
-      </TouchableOpacity>
-
-      <TransactionDetailModal
-        visible={selectedTransaction !== null}
-        transaction={selectedTransaction}
-        onClose={() => setSelectedTransaction(null)}
-      />
-    </View>
+    </AuroraBackground>
   );
 }
 

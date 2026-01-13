@@ -28,6 +28,7 @@ import { useToastStore } from '../../src/store/toastStore';
 import { useTheme, lightPalette as palette } from '../../src/theme';
 import { GoogleDrivePicker, PickedFile } from '../../src/components/GoogleDrivePicker';
 import DemoModeBanner from '../../src/components/DemoModeBanner';
+import AuroraBackground from '../../src/components/AuroraBackground';
 
 
 
@@ -901,8 +902,8 @@ export default function Settings() {
   );
 
   return (
-    <>
-      <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
+    <AuroraBackground>
+      <ScrollView style={[styles.container, { backgroundColor: 'transparent' }]} contentContainerStyle={styles.content}>
         {demoConfig.isDemoMode && <DemoModeBanner />}
 
         {/* Prism Plus Section - Always Visible */}
@@ -1479,7 +1480,7 @@ export default function Settings() {
           />
         )
       }
-    </>
+    </AuroraBackground>
   );
 }
 

@@ -10,6 +10,7 @@ import { ReportStatus } from '../../src/types/report';
 import { PieChart } from '../../src/components/PieChart';
 import { Sparkline } from '../../src/components/Sparkline';
 import DemoModeBanner from '../../src/components/DemoModeBanner';
+import AuroraBackground from '../../src/components/AuroraBackground';
 
 import { useTheme, lightPalette as palette } from '../../src/theme';
 import OnboardingScreen from '../onboarding';
@@ -807,15 +808,17 @@ export default function Reports() {
   );
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
-      {demoConfig.isDemoMode && <DemoModeBanner />}
-      {renderReportEntry()}
-      {renderTabs()}
-      {activeTab === 'overview' && renderOverview()}
-      {activeTab === 'yearly' && renderYearly()}
-      {activeTab === 'trends' && renderTrends()}
-      <View style={styles.bottomPadding} />
-    </ScrollView>
+    <AuroraBackground>
+      <ScrollView style={[styles.container, { backgroundColor: 'transparent' }]} contentContainerStyle={styles.content}>
+        {demoConfig.isDemoMode && <DemoModeBanner />}
+        {renderReportEntry()}
+        {renderTabs()}
+        {activeTab === 'overview' && renderOverview()}
+        {activeTab === 'yearly' && renderYearly()}
+        {activeTab === 'trends' && renderTrends()}
+        <View style={styles.bottomPadding} />
+      </ScrollView>
+    </AuroraBackground>
   );
 }
 

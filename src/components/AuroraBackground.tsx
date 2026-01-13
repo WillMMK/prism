@@ -20,22 +20,22 @@ export const AuroraBackground: React.FC<AuroraBackgroundProps> = ({
 }) => {
     const { isDark, colors } = useTheme();
 
-    // iOS-style gradient: extremely subtle, barely perceptible
-    // Light mode: warm white to cool white (like Apple's systemBackground)
-    // Dark mode: pure dark with hint of depth
+    // Premium gradient inspired by modern health/finance apps
+    // Light mode: subtle blue to warm cream (noticeable but elegant)
+    // Dark mode: deep cool gradient
     const gradientColors = isDark
-        ? ['#000000', '#0A0A0A', '#000000'] as const
-        : ['#FFFFFF', '#FAFAFA', '#F5F5F7'] as const;
+        ? ['#0F172A', '#1E1B2E', '#121212'] as const
+        : ['#E8F4FD', '#F0F4FB', '#F6F3EF'] as const;
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
-            {/* Subtle vertical gradient for depth - Apple style */}
+            {/* Premium gradient background */}
             <LinearGradient
                 colors={gradientColors}
-                locations={[0, 0.5, 1]}
+                locations={[0, 0.4, 1]}
                 style={StyleSheet.absoluteFill}
-                start={{ x: 0.5, y: 0 }}
-                end={{ x: 0.5, y: 1 }}
+                start={{ x: 0.2, y: 0 }}
+                end={{ x: 0.8, y: 1 }}
             />
 
             {/* Content Layer */}
