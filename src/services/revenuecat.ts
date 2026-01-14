@@ -10,8 +10,8 @@
  */
 
 import Purchases, { PurchasesPackage, CustomerInfo } from 'react-native-purchases';
-
-import { Platform } from 'react-native';
+import { Platform, Alert } from 'react-native';
+import { usePremiumStore } from '../store/premiumStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Configuration
@@ -79,9 +79,20 @@ export async function initializeRevenueCat(): Promise<void> {
 export async function checkSubscriptionStatus(): Promise<SubscriptionStatus> {
     try {
         const customerInfo = await Purchases.getCustomerInfo();
+
+        // Debug logging to help diagnose issues
+        console.log('[RevenueCat] Customer ID:', customerInfo.originalAppUserId);
+        console.log('[RevenueCat] Active entitlements:', Object.keys(customerInfo.entitlements.active));
+        console.log('[RevenueCat] All entitlements:', Object.keys(customerInfo.entitlements.all));
+
         const entitlement = customerInfo.entitlements.active[ENTITLEMENT_ID];
 
         if (entitlement) {
+            console.log('[RevenueCat] Found active entitlement:', {
+                productId: entitlement.productIdentifier,
+                expiresDate: entitlement.expirationDate,
+                isActive: entitlement.isActive,
+            });
             return {
                 isActive: true,
                 expirationDate: entitlement.expirationDate || undefined,
@@ -89,10 +100,44 @@ export async function checkSubscriptionStatus(): Promise<SubscriptionStatus> {
             };
         }
 
+        console.log('[RevenueCat] No active entitlement found for:', ENTITLEMENT_ID);
         return { isActive: false };
     } catch (error) {
         console.error('[RevenueCat] Failed to check subscription:', error);
         return { isActive: false };
+    }
+}
+
+/**
+ * Sync subscription status from RevenueCat to local store
+ * Call this on app startup and when app returns to foreground
+ * This ensures expired subscriptions are properly reflected in the UI
+ */
+export async function syncSubscriptionStatus(): Promise<boolean> {
+    try {
+        console.log('[RevenueCat] Syncing subscription status...');
+        const status = await checkSubscriptionStatus();
+        const store = usePremiumStore.getState();
+
+        if (status.isActive) {
+            // Subscription is active - ensure local state matches
+            if (!store.isPremium) {
+                console.log('[RevenueCat] Restoring premium status from RevenueCat');
+                store.setPremium(true, status.productId);
+            }
+            return true;
+        } else {
+            // Subscription not active - update local state if needed
+            if (store.isPremium) {
+                console.log('[RevenueCat] Subscription expired, updating local state');
+                store.setPremium(false);
+            }
+            return false;
+        }
+    } catch (error) {
+        console.error('[RevenueCat] Failed to sync subscription:', error);
+        // On error, don't change existing state
+        return usePremiumStore.getState().isPremium;
     }
 }
 
@@ -105,8 +150,33 @@ const OFFERING_ID = 'prism_plus';
 
 /**
  * Get available packages for purchase
+ * In production, throws errors for proper handling
+ * In development, returns mock packages for testing
  */
 export async function getPackages(): Promise<PurchasesPackage[]> {
+    const mockPackages = [
+        {
+            identifier: 'monthly',
+            product: {
+                identifier: PRODUCT_IDS.monthly,
+                title: 'Prism Plus Monthly',
+                description: 'Unlock all premium features',
+                priceString: '$4.99',
+                price: 4.99,
+            },
+        } as PurchasesPackage,
+        {
+            identifier: 'yearly',
+            product: {
+                identifier: PRODUCT_IDS.yearly,
+                title: 'Prism Plus Yearly',
+                description: 'Unlock all premium features',
+                priceString: '$39.99',
+                price: 39.99,
+            },
+        } as PurchasesPackage,
+    ];
+
     try {
         const offerings = await Purchases.getOfferings();
 
@@ -134,64 +204,30 @@ export async function getPackages(): Promise<PurchasesPackage[]> {
             return offerings.current.availablePackages;
         }
 
+        // No offerings found
         console.warn('[RevenueCat] No offerings found. Available:', JSON.stringify(offerings.all));
 
         if (__DEV__) {
             console.log('[RevenueCat] Using mock packages for development');
-            return [
-                {
-                    identifier: 'monthly',
-                    product: {
-                        identifier: PRODUCT_IDS.monthly,
-                        title: 'Prism Plus Monthly',
-                        description: 'Unlock all premium features',
-                        priceString: '$4.99',
-                        price: 4.99,
-                    },
-                } as PurchasesPackage,
-                {
-                    identifier: 'yearly',
-                    product: {
-                        identifier: PRODUCT_IDS.yearly,
-                        title: 'Prism Plus Yearly',
-                        description: 'Unlock all premium features',
-                        priceString: '$39.99',
-                        price: 39.99,
-                    },
-                } as PurchasesPackage,
-            ];
+            return mockPackages;
         }
 
+        // In production, return empty array and let paywall show error
+        // Don't throw here - the paywall will check for empty packages
         return [];
-    } catch (error) {
+    } catch (error: any) {
         console.error('[RevenueCat] Failed to get packages:', error);
+
         if (__DEV__) {
-            return [
-                {
-                    identifier: 'monthly',
-                    product: {
-                        identifier: PRODUCT_IDS.monthly,
-                        title: 'Prism Plus Monthly',
-                        description: 'Unlock all premium features',
-                        priceString: '$4.99',
-                        price: 4.99,
-                    },
-                } as PurchasesPackage,
-                {
-                    identifier: 'yearly',
-                    product: {
-                        identifier: PRODUCT_IDS.yearly,
-                        title: 'Prism Plus Yearly',
-                        description: 'Unlock all premium features',
-                        priceString: '$39.99',
-                        price: 39.99,
-                    },
-                } as PurchasesPackage,
-            ];
+            console.log('[RevenueCat] Using mock packages due to error in development');
+            return mockPackages;
         }
-        return [];
+
+        // In production, re-throw with user-friendly message
+        throw new Error(error.message || 'Unable to connect to the App Store. Please try again.');
     }
 }
+
 
 /**
  * Purchase a package

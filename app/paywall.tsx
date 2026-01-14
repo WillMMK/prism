@@ -231,8 +231,21 @@ export default function PaywallScreen() {
 
     const loadPackages = async () => {
         setLoading(true);
-        const pkgs = await getPackages();
-        setPackages(pkgs);
+        setError(null); // Clear previous errors
+        try {
+            const pkgs = await getPackages();
+            if (pkgs.length === 0) {
+                // No packages returned - this is the error Apple reviewers may be seeing
+                setError('Unable to load subscription options. Please try again later.');
+                console.warn('[Paywall] No packages returned from RevenueCat');
+            } else {
+                setPackages(pkgs);
+                console.log('[Paywall] Loaded', pkgs.length, 'packages');
+            }
+        } catch (err: any) {
+            console.error('[Paywall] Failed to load packages:', err);
+            setError(err.message || 'There was a problem with the App Store.');
+        }
         setLoading(false);
     };
 
@@ -427,6 +440,15 @@ export default function PaywallScreen() {
                 {error && (
                     <View style={[styles.errorBox, { backgroundColor: 'rgba(214, 69, 80, 0.1)' }]}>
                         <Text style={styles.errorText}>{error}</Text>
+                        <TouchableOpacity
+                            style={styles.retryButton}
+                            onPress={loadPackages}
+                            disabled={loading}
+                        >
+                            <Text style={styles.retryButtonText}>
+                                {loading ? 'Loading...' : 'Tap to retry'}
+                            </Text>
+                        </TouchableOpacity>
                     </View>
                 )}
 
@@ -914,6 +936,17 @@ const styles = StyleSheet.create({
         color: '#D64550',
         fontSize: 14,
         textAlign: 'center',
+    },
+    retryButton: {
+        marginTop: 8,
+        padding: 8,
+    },
+    retryButtonText: {
+        color: '#D64550',
+        fontSize: 14,
+        textAlign: 'center',
+        fontWeight: '600',
+        textDecorationLine: 'underline',
     },
     purchaseButton: {
         height: 56,

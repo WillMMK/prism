@@ -203,7 +203,10 @@ export default function AddTransaction() {
   }, [showToast]);
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
-    setShowDatePicker(Platform.OS === 'ios'); // Keep open on iOS
+    // On Android, dismiss immediately after selection
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
     if (selectedDate) {
       const dateString = selectedDate.toISOString().split('T')[0];
       setDate(dateString);
@@ -312,7 +315,7 @@ export default function AddTransaction() {
     addTransaction(transaction);
 
     // Clear draft after successful save
-    await AsyncStorage.removeItem(DRAFT_STORAGE_KEY).catch(() => {});
+    await AsyncStorage.removeItem(DRAFT_STORAGE_KEY).catch(() => { });
 
     router.back();
 
@@ -533,15 +536,32 @@ export default function AddTransaction() {
             </View>
           </View>
 
-          {showDatePicker && (
+          {/* iOS: Show date picker in a modal with Done button */}
+          {Platform.OS === 'ios' && showDatePicker && (
+            <View style={styles.datePickerContainer}>
+              <View style={styles.datePickerHeader}>
+                <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                  <Text style={styles.datePickerDone}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={new Date(date + 'T00:00:00')}
+                mode="date"
+                display="spinner"
+                onChange={handleDateChange}
+              />
+            </View>
+          )}
+
+          {/* Android: Default date picker */}
+          {Platform.OS === 'android' && showDatePicker && (
             <DateTimePicker
               value={new Date(date + 'T00:00:00')}
               mode="date"
-              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              display="default"
               onChange={handleDateChange}
             />
           )}
-
           <TouchableOpacity
             style={[styles.saveButton, !category.trim() && styles.saveButtonDisabled]}
             onPress={handleSave}
@@ -927,5 +947,23 @@ const styles = StyleSheet.create({
   modalRowTextActive: {
     color: palette.accent,
     fontWeight: '700',
+  },
+  datePickerContainer: {
+    backgroundColor: palette.card,
+    borderRadius: 16,
+    marginBottom: 16,
+    overflow: 'hidden',
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.border,
+  },
+  datePickerDone: {
+    color: palette.accent,
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
