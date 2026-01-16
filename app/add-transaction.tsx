@@ -94,6 +94,7 @@ export default function AddTransaction() {
   const [draftLoaded, setDraftLoaded] = useState(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [pickerDate, setPickerDate] = useState(new Date()); // Temporary date for iOS picker
 
   const categoryOptions = useMemo(() => {
     const counts = new Map<string, number>();
@@ -202,14 +203,36 @@ export default function AddTransaction() {
     }
   }, [showToast]);
 
+  // Handle iOS date picker opening - sync pickerDate with current date
+  const openDatePicker = () => {
+    setPickerDate(new Date(date + 'T00:00:00'));
+    setShowDatePicker(true);
+  };
+
+  // Handle iOS Done button - apply the picker date to actual date
+  const handleDatePickerDone = () => {
+    // Use local date components to avoid timezone shift from toISOString()
+    const year = pickerDate.getFullYear();
+    const month = String(pickerDate.getMonth() + 1).padStart(2, '0');
+    const day = String(pickerDate.getDate()).padStart(2, '0');
+    const dateString = `${year}-${month}-${day}`;
+    setDate(dateString);
+    setShowDatePicker(false);
+  };
+
   const handleDateChange = (event: any, selectedDate?: Date) => {
-    // On Android, dismiss immediately after selection
     if (Platform.OS === 'android') {
+      // On Android, dismiss immediately and apply selection
       setShowDatePicker(false);
-    }
-    if (selectedDate) {
-      const dateString = selectedDate.toISOString().split('T')[0];
-      setDate(dateString);
+      if (selectedDate) {
+        const dateString = selectedDate.toISOString().split('T')[0];
+        setDate(dateString);
+      }
+    } else {
+      // On iOS, just update the picker date (don't apply until Done)
+      if (selectedDate) {
+        setPickerDate(selectedDate);
+      }
     }
   };
 
@@ -381,7 +404,7 @@ export default function AddTransaction() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboard}
       >
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} scrollEnabled={!showDatePicker}>
           <View style={styles.header}>
             <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
               <Ionicons name="chevron-back" size={22} color={palette.ink} />
@@ -518,7 +541,7 @@ export default function AddTransaction() {
               <Text style={styles.sectionTitle}>Date</Text>
               <TouchableOpacity
                 style={styles.dateButton}
-                onPress={() => setShowDatePicker(true)}
+                onPress={openDatePicker}
               >
                 <Ionicons name="calendar-outline" size={16} color={palette.accent} />
                 <Text style={styles.dateButtonText}>{formatDateDisplay(date)}</Text>
@@ -536,23 +559,6 @@ export default function AddTransaction() {
             </View>
           </View>
 
-          {/* iOS: Show date picker in a modal with Done button */}
-          {Platform.OS === 'ios' && showDatePicker && (
-            <View style={styles.datePickerContainer}>
-              <View style={styles.datePickerHeader}>
-                <TouchableOpacity onPress={() => setShowDatePicker(false)}>
-                  <Text style={styles.datePickerDone}>Done</Text>
-                </TouchableOpacity>
-              </View>
-              <DateTimePicker
-                value={new Date(date + 'T00:00:00')}
-                mode="date"
-                display="spinner"
-                onChange={handleDateChange}
-              />
-            </View>
-          )}
-
           {/* Android: Default date picker */}
           {Platform.OS === 'android' && showDatePicker && (
             <DateTimePicker
@@ -562,6 +568,26 @@ export default function AddTransaction() {
               onChange={handleDateChange}
             />
           )}
+          {/* iOS: Inline date picker with Done button */}
+          {Platform.OS === 'ios' && showDatePicker && (
+            <View style={styles.datePickerContainer}>
+              <View style={styles.datePickerHeader}>
+                <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                  <Text style={styles.datePickerCancel}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleDatePickerDone}>
+                  <Text style={styles.datePickerDone}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={pickerDate}
+                mode="date"
+                display="spinner"
+                onChange={handleDateChange}
+              />
+            </View>
+          )}
+
           <TouchableOpacity
             style={[styles.saveButton, !category.trim() && styles.saveButtonDisabled]}
             onPress={handleSave}
@@ -605,7 +631,7 @@ export default function AddTransaction() {
           </View>
         </View>
       </Modal>
-    </View>
+    </View >
   );
 }
 
@@ -954,12 +980,28 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     overflow: 'hidden',
   },
+  datePickerModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  datePickerModalCard: {
+    backgroundColor: palette.card,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 30,
+  },
   datePickerHeader: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    padding: 12,
+    justifyContent: 'space-between',
+    padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: palette.border,
+  },
+  datePickerCancel: {
+    color: palette.muted,
+    fontSize: 16,
+    fontWeight: '500',
   },
   datePickerDone: {
     color: palette.accent,
