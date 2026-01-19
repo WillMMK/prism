@@ -808,22 +808,18 @@
         }
 
 
-        // Watch for ConvertKit success message and show our custom success state
+        // Handle ConvertKit form submission - show success state with template link
         document.addEventListener('DOMContentLoaded', function () {
-            // Monitor for ConvertKit's success alert appearing
-            const observer = new MutationObserver(function (mutations) {
-                mutations.forEach(function (mutation) {
-                    const successAlert = document.querySelector('.formkit-alert-success');
-                    if (successAlert && successAlert.textContent.includes('Success')) {
+            const form = document.querySelector('.formkit-form');
+            if (form) {
+                form.addEventListener('submit', function (e) {
+                    // Let ConvertKit handle the actual submission
+                    // Show success state after a short delay
+                    setTimeout(function () {
                         document.getElementById('formState').classList.add('hidden');
                         document.getElementById('successState').classList.add('active');
-                    }
+                    }, 1500);
                 });
-            });
-
-            const formDiv = document.getElementById('formState');
-            if (formDiv) {
-                observer.observe(formDiv, { childList: true, subtree: true, characterData: true });
             }
         });
 
