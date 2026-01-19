@@ -756,8 +756,8 @@
 
             <!-- ConvertKit Form -->
             <div class="form-state" id="formState">
-                <h3>Get the Template + Bonus</h3>
-                <p>We'll send you the template plus 5 budget tips that actually work.</p>
+                <h3>Get the Template + Bonus Tips</h3>
+                <p>Get the template now, plus we'll email you 5 budget tips that actually work.</p>
 
                 <script src="https://f.convertkit.com/ckjs/ck.5.js"></script>
                 <form action="https://app.kit.com/forms/8989144/subscriptions" class="seva-form formkit-form"
@@ -773,8 +773,8 @@
                                     style="width: 100%; padding: 14px 16px; border: 2px solid var(--border); border-radius: 10px; font-size: 16px; font-family: inherit; background: white; color: var(--ink);">
                             </div>
                             <button data-element="submit" class="formkit-submit btn btn-primary" type="submit"
-                                style="width: 100%;">
-                                <span>Send Me the Template →</span>
+                                style="width: 100%;" id="ckSubmitBtn">
+                                <span>Get Template + Subscribe →</span>
                             </button>
                         </div>
                     </div>
@@ -788,10 +788,10 @@
             <div class="success-state" id="successState">
                 <div class="success-icon">✓</div>
                 <h3>You're all set!</h3>
-                <p>Check your inbox for the template and bonus tips. In the meantime, open the template now:</p>
-                <a href="https://docs.google.com/spreadsheets/d/139WQr8xzX8ry8eB7kCk6Rd-wqZkr8Gu-GaS50DXpA3g/copy"
+                <p>Check your inbox for the bonus tips. Now grab your template:</p>
+                <a href="https://docs.google.com/spreadsheets/d/1yjvx23pkacH-mPzu8fD8PQaVCKGCKoU_Q-DrxmkFolE/copy"
                     class="btn btn-primary" target="_blank">
-                    Open Template →
+                    📥 Open Template Now
                 </a>
             </div>
         </div>
@@ -809,7 +809,20 @@
         }
 
 
-        // ConvertKit handles form submission
+        // Handle ConvertKit form submission - show success state with template link
+        document.addEventListener('DOMContentLoaded', function () {
+            const form = document.querySelector('.formkit-form');
+            if (form) {
+                form.addEventListener('submit', function (e) {
+                    // Let ConvertKit handle the actual submission
+                    // But show success state after a short delay
+                    setTimeout(function () {
+                        document.getElementById('formState').classList.add('hidden');
+                        document.getElementById('successState').classList.add('active');
+                    }, 1500);
+                });
+            }
+        });
 
         // Close modal on overlay click
         document.getElementById('emailModal').addEventListener('click', function (e) {
