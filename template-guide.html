@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prism Budget Template - Quick Start Guide</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: #fff;
+            color: #1E1B16;
+            line-height: 1.5;
+            padding: 24px;
+            max-width: 800px;
+            margin: 0 auto;
+            font-size: 14px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid #E6DED4;
+        }
+
+        .logo {
+            font-size: 24px;
+            margin-bottom: 4px;
+        }
+
+        h1 {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 4px;
+            color: #0F766E;
+        }
+
+        .subtitle {
+            color: #6B645C;
+            font-size: 16px;
+        }
+
+        h2 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-top: 16px;
+            margin-bottom: 8px;
+            color: #0F766E;
+        }
+
+        p {
+            margin-bottom: 8px;
+        }
+
+        .template-link {
+            background: #0F766E;
+            color: white;
+            padding: 12px 16px;
+            border-radius: 10px;
+            text-align: center;
+            margin: 16px 0;
+        }
+
+        .template-link a {
+            color: white;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 18px;
+        }
+
+        .template-link p {
+            margin-top: 8px;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .columns {
+            background: #F6F3EF;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 12px 0;
+        }
+
+        .columns table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .columns th,
+        .columns td {
+            padding: 6px 8px;
+            text-align: left;
+            border-bottom: 1px solid #E6DED4;
+            font-size: 13px;
+        }
+
+        .columns th {
+            font-weight: 600;
+            color: #0F766E;
+        }
+
+        .tip {
+            background: #D6EFE8;
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+            font-size: 13px;
+        }
+
+        .tip strong {
+            color: #0F766E;
+        }
+
+        .app-section {
+            background: linear-gradient(135deg, #0F766E, #0D5A54);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .app-section h2 {
+            color: white;
+            margin-top: 0;
+        }
+
+        .app-section p {
+            opacity: 0.9;
+        }
+
+        .app-section a {
+            color: white;
+            font-weight: 600;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 12px;
+            border-top: 1px solid #E6DED4;
+            color: #6B645C;
+            font-size: 12px;
+        }
+
+        ul {
+            margin-left: 24px;
+            margin-bottom: 16px;
+        }
+
+        li {
+            margin-bottom: 4px;
+        }
+
+        /* Print styles - removes browser headers/footers */
+        @media print {
+            @page {
+                margin: 0.5in;
+            }
+
+            body {
+                padding: 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <div class="logo">📊</div>
+        <h1>Simple Budget Template</h1>
+        <p class="subtitle">Your minimalist approach to tracking money</p>
+    </div>
+
+    <h2>👋 Welcome!</h2>
+    <p>Thanks for downloading the Simple Budget Template. Unlike complex spreadsheets with 12 tabs and formulas that
+        break, this template does one thing well: logs your transactions.</p>
+
+    <div class="template-link">
+        <a href="https://docs.google.com/spreadsheets/d/1yjvx23pkacH-mPzu8fD8PQaVCKGCKoU_Q-DrxmkFolE/copy">📥 Click Here
+            to Get Your Template</a>
+        <p>Opens Google Sheets → Click "Make a copy"</p>
+    </div>
+
+    <h2>📝 How It Works</h2>
+    <p>The template has just 4 columns:</p>
+
+    <img src="template-preview.png" alt="Simple Budget Template Preview"
+        style="width: 80%; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); display: block; margin-left: auto; margin-right: auto;">
+
+    <div class="columns">
+        <table>
+            <tr>
+                <th>Column</th>
+                <th>What to Enter</th>
+            </tr>
+            <tr>
+                <td><strong>Date</strong></td>
+                <td>When you spent/received money (any format works)</td>
+            </tr>
+            <tr>
+                <td><strong>Description</strong></td>
+                <td>What it was for (e.g., "Woolworths groceries")</td>
+            </tr>
+            <tr>
+                <td><strong>Category</strong></td>
+                <td>Select from dropdown (Food, Transport, Salary, etc.)</td>
+            </tr>
+            <tr>
+                <td><strong>Amount</strong></td>
+                <td>The number (always positive)</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="tip">
+        <strong>💡 Pro tip:</strong> All amounts are positive numbers. The category determines if it's an expense (Food,
+        Shopping) or income (Salary, Freelance).
+    </div>
+
+    <h2>✅ Quick Start</h2>
+    <ul>
+        <li><strong>Step 1:</strong> Click the template link above</li>
+        <li><strong>Step 2:</strong> Click "Make a copy" (now it's yours!)</li>
+        <li><strong>Step 3:</strong> Start logging transactions</li>
+        <li><strong>Step 4:</strong> Use the category dropdown (prevents typos)</li>
+    </ul>
+
+    <h2>💡 Tips for Success</h2>
+    <ul>
+        <li><strong>Log daily</strong> — Takes 30 seconds, prevents forgotten expenses</li>
+        <li><strong>Use the dropdown</strong> — Consistent categories = better insights</li>
+        <li><strong>Keep it simple</strong> — Don't add extra columns, the app handles analysis</li>
+        <li><strong>After a year</strong> — Rename the tab to "Transactions 2026" and create a new one</li>
+    </ul>
+
+    <div class="app-section">
+        <h2>📱 Want Charts & Insights?</h2>
+        <p>The Prism app syncs with your Google Sheet and gives you beautiful spending breakdowns, trends, and reports —
+            automatically.</p>
+        <img src="app-preview.png" alt="Prism App Dashboard"
+            style="width: 40%; max-width: 180px; border-radius: 12px; margin: 12px auto; display: block; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
+        <p>
+            <a href="https://apps.apple.com/app/prism-budget-tracker/id6757287712">Download on the App Store →</a>
+        </p>
+        <p style="margin-top: 8px; font-size: 14px;">
+            <a href="https://getprismbudget.com">getprismbudget.com</a>
+        </p>
+    </div>
+
+    <div class="footer">
+        <p>Made with 💚 by Prism</p>
+        <p style="margin-top: 8px;">Questions? willchancot@gmail.com</p>
+    </div>
+</body>
+
+</html>
