@@ -165,6 +165,19 @@
             localStorage.setItem(STORAGE_EMBEDDED_KEY, urlEmbedded);
         }
         const isEmbedded = (urlEmbedded || localStorage.getItem(STORAGE_EMBEDDED_KEY)) === 'true';
+        const autoOpen = (urlParams.get('auto') || '1') === '1';
+
+        // If consent flow reloaded and stripped query params, restore them once.
+        const restoredFlag = urlParams.get('restored') === '1';
+        if (!urlToken && accessToken && !restoredFlag) {
+            const nextParams = new URLSearchParams(window.location.search);
+            nextParams.set('token', accessToken);
+            nextParams.set('scheme', returnScheme);
+            nextParams.set('restored', '1');
+            nextParams.set('ts', String(Date.now()));
+            const nextUrl = `${window.location.origin}${window.location.pathname}?${nextParams.toString()}`;
+            window.location.replace(nextUrl);
+        }
 
         // Track state
         let gapiReady = false;
@@ -339,8 +352,15 @@
 
         // Initial state
         if (accessToken) {
-            showStatus('Ready to open Google Drive.', false);
-            document.getElementById('pickBtn').disabled = false;
+            showStatus(autoOpen ? 'Opening Google Drive...' : 'Ready to open Google Drive.', false);
+            document.getElementById('pickBtn').disabled = autoOpen;
+            if (autoOpen) {
+                if (gapiReady) {
+                    openPicker();
+                } else {
+                    pendingOpen = true;
+                }
+            }
         } else {
             showStatus('Missing access token. Please start from the Prism app.', true);
             document.getElementById('pickBtn').disabled = true;
