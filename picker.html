@@ -171,6 +171,8 @@
         let pickerModuleReady = false;
         let gapiScriptLoading = false;
         let pendingAutoOpen = false;
+        const AUTOSTART_KEY = 'prism_picker_autostart';
+        const AUTOSTART_TS_KEY = 'prism_picker_autostart_ts';
         let retryCount = 0;
         let pendingAutoOpen = false;
 
@@ -321,6 +323,8 @@
 
             if (!gapiReady) {
                 pendingAutoOpen = true;
+                localStorage.setItem(AUTOSTART_KEY, '1');
+                localStorage.setItem(AUTOSTART_TS_KEY, String(Date.now()));
                 loadGapiScript();
                 return;
             }
@@ -348,6 +352,7 @@
             console.log('[Picker] gapi ready');
             if (pendingAutoOpen && accessToken) {
                 pendingAutoOpen = false;
+                localStorage.removeItem(AUTOSTART_KEY);
                 loadPickerModule(function () {
                     buildAndShowPicker();
                 });
@@ -361,6 +366,21 @@
         } else {
             showStatus('Missing access token. Please start from the Prism app.', true);
             document.getElementById('pickBtn').disabled = true;
+        }
+
+        // If a cookie-consent reload happened, auto-resume the flow once gapi is ready
+        const autostart = localStorage.getItem(AUTOSTART_KEY) === '1';
+        if (autostart && accessToken) {
+            pendingAutoOpen = true;
+            const ts = Number(localStorage.getItem(AUTOSTART_TS_KEY) || '0');
+            if (!ts || Date.now() - ts < 2 * 60 * 1000) {
+                showStatus('Resuming Google Drive...', false);
+                loadGapiScript();
+            } else {
+                // Stale autostart - clear to avoid loops
+                localStorage.removeItem(AUTOSTART_KEY);
+                localStorage.removeItem(AUTOSTART_TS_KEY);
+            }
         }
     </script>
 </body>
