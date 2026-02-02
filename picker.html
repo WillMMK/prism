@@ -170,6 +170,7 @@
         let gapiReady = false;
         let pickerModuleReady = false;
         let gapiScriptLoading = false;
+        let pendingAutoOpen = false;
         let retryCount = 0;
         let pendingAutoOpen = false;
 
@@ -319,6 +320,7 @@
             showStatus('Loading Google Drive...', false);
 
             if (!gapiReady) {
+                pendingAutoOpen = true;
                 loadGapiScript();
                 return;
             }
@@ -344,6 +346,12 @@
             gapiReady = true;
 
             console.log('[Picker] gapi ready');
+            if (pendingAutoOpen && accessToken) {
+                pendingAutoOpen = false;
+                loadPickerModule(function () {
+                    buildAndShowPicker();
+                });
+            }
         }
 
         // Initial state
