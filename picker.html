@@ -134,6 +134,7 @@
         </button>
 
         <div id="status" class="status" style="display:none;"></div>
+        <div id="debug" class="status" style="display:none; text-align:left; margin-top:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px;"></div>
     </div>
 
     <script>
@@ -166,6 +167,7 @@
         }
         const isEmbedded = (urlEmbedded || localStorage.getItem(STORAGE_EMBEDDED_KEY)) === 'true';
         const autoOpen = (urlParams.get('auto') || '1') === '1';
+        const debugEnabled = urlParams.get('debug') === '1';
 
         // If consent flow reloaded and stripped query params, restore them once.
         const restoredFlag = urlParams.get('restored') === '1';
@@ -202,6 +204,13 @@
             } else {
                 el.textContent = msg;
             }
+        }
+
+        function setDebug(lines) {
+            if (!debugEnabled) return;
+            const el = document.getElementById('debug');
+            el.style.display = 'block';
+            el.innerHTML = lines.map((l) => l.replace(/</g, '&lt;')).join('<br>');
         }
 
         function retryOpen() {
@@ -241,6 +250,13 @@
 
         function buildAndShowPicker() {
             try {
+                setDebug([
+                    'state=buildPicker',
+                    'token_present=' + Boolean(accessToken),
+                    'gapi_ready=' + gapiReady,
+                    'picker_module=' + pickerModuleReady,
+                    'url=' + window.location.href
+                ]);
                 const docsView = new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS)
                     .setMimeTypes('application/vnd.google-apps.spreadsheet')
                     .setMode(google.picker.DocsViewMode.LIST);
@@ -267,6 +283,14 @@
 
         function handlePickerError(errorMsg) {
             retryCount++;
+            setDebug([
+                'state=pickerError',
+                'error=' + errorMsg,
+                'token_present=' + Boolean(accessToken),
+                'gapi_ready=' + gapiReady,
+                'picker_module=' + pickerModuleReady,
+                'url=' + window.location.href
+            ]);
             if (retryCount <= MAX_RETRIES) {
                 console.log('[Picker] Retry ' + retryCount + '/' + MAX_RETRIES);
                 showStatus('Loading Google Drive... (attempt ' + (retryCount + 1) + ')', false);
@@ -292,6 +316,13 @@
                 callback: function () {
                     console.log('[Picker] Picker module loaded');
                     pickerModuleReady = true;
+                    setDebug([
+                        'state=pickerModuleReady',
+                        'token_present=' + Boolean(accessToken),
+                        'gapi_ready=' + gapiReady,
+                        'picker_module=' + pickerModuleReady,
+                        'url=' + window.location.href
+                    ]);
                     callback();
                 },
                 onerror: function () {
@@ -315,6 +346,13 @@
 
             document.getElementById('pickBtn').disabled = true;
             showStatus('Loading Google Drive...', false);
+            setDebug([
+                'state=openPicker',
+                'token_present=' + Boolean(accessToken),
+                'gapi_ready=' + gapiReady,
+                'picker_module=' + pickerModuleReady,
+                'url=' + window.location.href
+            ]);
 
             if (!gapiReady) {
                 pendingOpen = true;
@@ -341,6 +379,13 @@
         function onGapiLoaded() {
             console.log('[Picker] gapi script loaded');
             gapiReady = true;
+            setDebug([
+                'state=gapiReady',
+                'token_present=' + Boolean(accessToken),
+                'gapi_ready=' + gapiReady,
+                'picker_module=' + pickerModuleReady,
+                'url=' + window.location.href
+            ]);
 
             if (pendingOpen && accessToken) {
                 pendingOpen = false;
@@ -365,6 +410,14 @@
             showStatus('Missing access token. Please start from the Prism app.', true);
             document.getElementById('pickBtn').disabled = true;
         }
+        setDebug([
+            'state=init',
+            'token_present=' + Boolean(accessToken),
+            'gapi_ready=' + gapiReady,
+            'picker_module=' + pickerModuleReady,
+            'auto_open=' + autoOpen,
+            'url=' + window.location.href
+        ]);
 
     </script>
     <script src="https://apis.google.com/js/api.js" onload="onGapiLoaded()"></script>
