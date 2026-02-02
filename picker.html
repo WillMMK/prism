@@ -142,7 +142,7 @@
         const APP_ID = '907648461438';
         const MAX_RETRIES = 3;
 
-        // Get params from URL (persist to sessionStorage so cookie-banner reloads don't drop them)
+        // Get params from URL (persist to localStorage so cookie-banner reloads don't drop them)
         const urlParams = new URLSearchParams(window.location.search);
         const STORAGE_TOKEN_KEY = 'prism_picker_token';
         const STORAGE_SCHEME_KEY = 'prism_picker_scheme';
@@ -150,21 +150,21 @@
 
         const urlToken = urlParams.get('token') || window.INJECTED_TOKEN || null;
         if (urlToken) {
-            sessionStorage.setItem(STORAGE_TOKEN_KEY, urlToken);
+            localStorage.setItem(STORAGE_TOKEN_KEY, urlToken);
         }
-        let accessToken = urlToken || sessionStorage.getItem(STORAGE_TOKEN_KEY);
+        let accessToken = urlToken || localStorage.getItem(STORAGE_TOKEN_KEY);
 
         const urlScheme = urlParams.get('scheme');
         if (urlScheme) {
-            sessionStorage.setItem(STORAGE_SCHEME_KEY, urlScheme);
+            localStorage.setItem(STORAGE_SCHEME_KEY, urlScheme);
         }
-        const returnScheme = urlScheme || sessionStorage.getItem(STORAGE_SCHEME_KEY) || 'budget-tracker';
+        const returnScheme = urlScheme || localStorage.getItem(STORAGE_SCHEME_KEY) || 'budget-tracker';
 
         const urlEmbedded = urlParams.get('embedded');
         if (urlEmbedded) {
-            sessionStorage.setItem(STORAGE_EMBEDDED_KEY, urlEmbedded);
+            localStorage.setItem(STORAGE_EMBEDDED_KEY, urlEmbedded);
         }
-        const isEmbedded = (urlEmbedded || sessionStorage.getItem(STORAGE_EMBEDDED_KEY)) === 'true';
+        const isEmbedded = (urlEmbedded || localStorage.getItem(STORAGE_EMBEDDED_KEY)) === 'true';
 
         // Track state
         let gapiReady = false;
