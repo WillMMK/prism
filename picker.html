@@ -169,18 +169,15 @@
         // Track state
         let gapiReady = false;
         let pickerModuleReady = false;
-        let gapiScriptLoading = false;
-        let pendingAutoOpen = false;
-        const AUTOSTART_KEY = 'prism_picker_autostart';
-        const AUTOSTART_TS_KEY = 'prism_picker_autostart_ts';
         let retryCount = 0;
-        let pendingAutoOpen = false;
+        let pendingOpen = false;
 
         // Function to receive token from injected JavaScript
         window.initWithToken = function (token) {
             console.log('[Picker] Received injected token');
             accessToken = token;
-            openPickerWhenReady();
+            document.getElementById('pickBtn').disabled = false;
+            showStatus('Ready to open Google Drive.', false);
         };
 
         function showStatus(msg, isError, showRetry) {
@@ -296,21 +293,6 @@
             });
         }
 
-        function loadGapiScript() {
-            if (gapiReady || gapiScriptLoading) return;
-            gapiScriptLoading = true;
-            const script = document.createElement('script');
-            script.src = 'https://apis.google.com/js/api.js';
-            script.async = true;
-            script.onload = onGapiLoaded;
-            script.onerror = function () {
-                gapiScriptLoading = false;
-                console.error('[Picker] gapi script failed to load');
-                handlePickerError('Google API script failed to load');
-            };
-            document.head.appendChild(script);
-        }
-
         function openPicker() {
             if (!accessToken) {
                 showStatus('No access token provided. Please try again from the app.', true);
@@ -322,10 +304,8 @@
             showStatus('Loading Google Drive...', false);
 
             if (!gapiReady) {
-                pendingAutoOpen = true;
-                localStorage.setItem(AUTOSTART_KEY, '1');
-                localStorage.setItem(AUTOSTART_TS_KEY, String(Date.now()));
-                loadGapiScript();
+                pendingOpen = true;
+                showStatus('Loading Google API...', false);
                 return;
             }
 
@@ -349,10 +329,8 @@
             console.log('[Picker] gapi script loaded');
             gapiReady = true;
 
-            console.log('[Picker] gapi ready');
-            if (pendingAutoOpen && accessToken) {
-                pendingAutoOpen = false;
-                localStorage.removeItem(AUTOSTART_KEY);
+            if (pendingOpen && accessToken) {
+                pendingOpen = false;
                 loadPickerModule(function () {
                     buildAndShowPicker();
                 });
@@ -368,21 +346,8 @@
             document.getElementById('pickBtn').disabled = true;
         }
 
-        // If a cookie-consent reload happened, auto-resume the flow once gapi is ready
-        const autostart = localStorage.getItem(AUTOSTART_KEY) === '1';
-        if (autostart && accessToken) {
-            pendingAutoOpen = true;
-            const ts = Number(localStorage.getItem(AUTOSTART_TS_KEY) || '0');
-            if (!ts || Date.now() - ts < 2 * 60 * 1000) {
-                showStatus('Resuming Google Drive...', false);
-                loadGapiScript();
-            } else {
-                // Stale autostart - clear to avoid loops
-                localStorage.removeItem(AUTOSTART_KEY);
-                localStorage.removeItem(AUTOSTART_TS_KEY);
-            }
-        }
     </script>
+    <script src="https://apis.google.com/js/api.js" onload="onGapiLoaded()"></script>
 </body>
 
 </html>
