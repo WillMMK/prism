@@ -169,6 +169,7 @@
         // Track state
         let gapiReady = false;
         let pickerModuleReady = false;
+        let gapiScriptLoading = false;
         let retryCount = 0;
         let pendingAutoOpen = false;
 
@@ -292,6 +293,21 @@
             });
         }
 
+        function loadGapiScript() {
+            if (gapiReady || gapiScriptLoading) return;
+            gapiScriptLoading = true;
+            const script = document.createElement('script');
+            script.src = 'https://apis.google.com/js/api.js';
+            script.async = true;
+            script.onload = onGapiLoaded;
+            script.onerror = function () {
+                gapiScriptLoading = false;
+                console.error('[Picker] gapi script failed to load');
+                handlePickerError('Google API script failed to load');
+            };
+            document.head.appendChild(script);
+        }
+
         function openPicker() {
             if (!accessToken) {
                 showStatus('No access token provided. Please try again from the app.', true);
@@ -303,22 +319,13 @@
             showStatus('Loading Google Drive...', false);
 
             if (!gapiReady) {
-                // gapi not loaded yet, queue for when it's ready
-                pendingAutoOpen = true;
+                loadGapiScript();
                 return;
             }
 
             loadPickerModule(function () {
                 buildAndShowPicker();
             });
-        }
-
-        function openPickerWhenReady() {
-            if (gapiReady) {
-                openPicker();
-            } else {
-                pendingAutoOpen = true;
-            }
         }
 
         function pickerCallback(data) {
@@ -336,28 +343,18 @@
             console.log('[Picker] gapi script loaded');
             gapiReady = true;
 
-            // Pre-load the picker module eagerly
-            loadPickerModule(function () {
-                console.log('[Picker] Picker module pre-loaded');
-                // If auto-open was queued, fire it now
-                if (pendingAutoOpen && accessToken) {
-                    pendingAutoOpen = false;
-                    buildAndShowPicker();
-                }
-            });
+            console.log('[Picker] gapi ready');
         }
 
         // Initial state
         if (accessToken) {
-            pendingAutoOpen = true;
-            showStatus('Loading Google Drive...', false);
-            document.getElementById('pickBtn').disabled = true;
+            showStatus('Ready to open Google Drive.', false);
+            document.getElementById('pickBtn').disabled = false;
         } else {
             showStatus('Missing access token. Please start from the Prism app.', true);
+            document.getElementById('pickBtn').disabled = true;
         }
     </script>
-    <!-- Load gapi with onload callback instead of blind setTimeout -->
-    <script src="https://apis.google.com/js/api.js" onload="onGapiLoaded()"></script>
 </body>
 
 </html>
