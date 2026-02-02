@@ -99,6 +99,15 @@
             font-size: 13px;
         }
 
+        .error .retry-link {
+            display: inline-block;
+            margin-top: 8px;
+            color: #d32f2f;
+            font-weight: 600;
+            text-decoration: underline;
+            cursor: pointer;
+        }
+
         .success {
             color: #2e7d32;
             background: #e8f5e9;
@@ -127,31 +136,64 @@
         <div id="status" class="status" style="display:none;"></div>
     </div>
 
-    <script src="https://apis.google.com/js/api.js"></script>
     <script>
         // Configuration
         const API_KEY = 'AIzaSyBO6TWo1UoHEEzkn4ioE7qXTKRo4x6W7YM';
         const APP_ID = '907648461438';
+        const MAX_RETRIES = 3;
 
-        // Get params from URL
+        // Get params from URL (persist to sessionStorage so cookie-banner reloads don't drop them)
         const urlParams = new URLSearchParams(window.location.search);
-        let accessToken = urlParams.get('token') || window.INJECTED_TOKEN || null;
-        const returnScheme = urlParams.get('scheme') || 'budget-tracker';
-        const isEmbedded = urlParams.get('embedded') === 'true';
+        const STORAGE_TOKEN_KEY = 'prism_picker_token';
+        const STORAGE_SCHEME_KEY = 'prism_picker_scheme';
+        const STORAGE_EMBEDDED_KEY = 'prism_picker_embedded';
+
+        const urlToken = urlParams.get('token') || window.INJECTED_TOKEN || null;
+        if (urlToken) {
+            sessionStorage.setItem(STORAGE_TOKEN_KEY, urlToken);
+        }
+        let accessToken = urlToken || sessionStorage.getItem(STORAGE_TOKEN_KEY);
+
+        const urlScheme = urlParams.get('scheme');
+        if (urlScheme) {
+            sessionStorage.setItem(STORAGE_SCHEME_KEY, urlScheme);
+        }
+        const returnScheme = urlScheme || sessionStorage.getItem(STORAGE_SCHEME_KEY) || 'budget-tracker';
+
+        const urlEmbedded = urlParams.get('embedded');
+        if (urlEmbedded) {
+            sessionStorage.setItem(STORAGE_EMBEDDED_KEY, urlEmbedded);
+        }
+        const isEmbedded = (urlEmbedded || sessionStorage.getItem(STORAGE_EMBEDDED_KEY)) === 'true';
+
+        // Track state
+        let gapiReady = false;
+        let pickerModuleReady = false;
+        let retryCount = 0;
+        let pendingAutoOpen = false;
 
         // Function to receive token from injected JavaScript
         window.initWithToken = function (token) {
             console.log('[Picker] Received injected token');
             accessToken = token;
-            // Auto-open picker when token is injected
-            setTimeout(openPicker, 100);
+            openPickerWhenReady();
         };
 
-        function showStatus(msg, isError) {
+        function showStatus(msg, isError, showRetry) {
             const el = document.getElementById('status');
             el.style.display = 'block';
             el.className = isError ? 'error' : 'status';
-            el.textContent = msg;
+            if (isError && showRetry) {
+                el.innerHTML = msg + '<br><span class="retry-link" onclick="retryOpen()">Tap to retry</span>';
+            } else {
+                el.textContent = msg;
+            }
+        }
+
+        function retryOpen() {
+            retryCount = 0;
+            pickerModuleReady = false;
+            openPicker();
         }
 
         function sendResult(data) {
@@ -183,6 +225,73 @@
             sendResult({ action: 'error', message: message });
         }
 
+        function buildAndShowPicker() {
+            try {
+                const docsView = new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS)
+                    .setMimeTypes('application/vnd.google-apps.spreadsheet')
+                    .setMode(google.picker.DocsViewMode.LIST);
+
+                const picker = new google.picker.PickerBuilder()
+                    .addView(docsView)
+                    .setOAuthToken(accessToken)
+                    .setDeveloperKey(API_KEY)
+                    .setAppId(APP_ID)
+                    .setTitle('Select Budget Spreadsheet')
+                    .setCallback(pickerCallback)
+                    .enableFeature(google.picker.Feature.NAV_HIDDEN)
+                    .build();
+
+                picker.setVisible(true);
+                document.getElementById('status').style.display = 'none';
+                document.getElementById('pickBtn').disabled = false;
+                retryCount = 0;
+            } catch (err) {
+                console.error('[Picker] Build error:', err.message);
+                handlePickerError(err.message);
+            }
+        }
+
+        function handlePickerError(errorMsg) {
+            retryCount++;
+            if (retryCount <= MAX_RETRIES) {
+                console.log('[Picker] Retry ' + retryCount + '/' + MAX_RETRIES);
+                showStatus('Loading Google Drive... (attempt ' + (retryCount + 1) + ')', false);
+                // Reload the picker module fresh before retrying
+                pickerModuleReady = false;
+                setTimeout(function () {
+                    loadPickerModule(function () {
+                        buildAndShowPicker();
+                    });
+                }, 800 * retryCount);
+            } else {
+                showStatus('Failed to load picker: ' + errorMsg, true, true);
+                document.getElementById('pickBtn').disabled = false;
+            }
+        }
+
+        function loadPickerModule(callback) {
+            if (pickerModuleReady && typeof google !== 'undefined' && google.picker) {
+                callback();
+                return;
+            }
+            gapi.load('picker', {
+                callback: function () {
+                    console.log('[Picker] Picker module loaded');
+                    pickerModuleReady = true;
+                    callback();
+                },
+                onerror: function () {
+                    console.error('[Picker] Picker module failed to load');
+                    handlePickerError('Google Picker module failed to load');
+                },
+                timeout: 10000,
+                ontimeout: function () {
+                    console.error('[Picker] Picker module load timed out');
+                    handlePickerError('Google Picker timed out loading');
+                }
+            });
+        }
+
         function openPicker() {
             if (!accessToken) {
                 showStatus('No access token provided. Please try again from the app.', true);
@@ -193,30 +302,23 @@
             document.getElementById('pickBtn').disabled = true;
             showStatus('Loading Google Drive...', false);
 
-            gapi.load('picker', () => {
-                try {
-                    const docsView = new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS)
-                        .setMimeTypes('application/vnd.google-apps.spreadsheet')
-                        .setMode(google.picker.DocsViewMode.LIST);
+            if (!gapiReady) {
+                // gapi not loaded yet, queue for when it's ready
+                pendingAutoOpen = true;
+                return;
+            }
 
-                    const picker = new google.picker.PickerBuilder()
-                        .addView(docsView)
-                        .setOAuthToken(accessToken)
-                        .setDeveloperKey(API_KEY)
-                        .setAppId(APP_ID)
-                        .setTitle('Select Budget Spreadsheet')
-                        .setCallback(pickerCallback)
-                        .enableFeature(google.picker.Feature.NAV_HIDDEN)
-                        .build();
-
-                    picker.setVisible(true);
-                    document.getElementById('status').style.display = 'none';
-                } catch (err) {
-                    showStatus('Failed to load picker: ' + err.message, true);
-                    document.getElementById('pickBtn').disabled = false;
-                    returnError(err.message);
-                }
+            loadPickerModule(function () {
+                buildAndShowPicker();
             });
+        }
+
+        function openPickerWhenReady() {
+            if (gapiReady) {
+                openPicker();
+            } else {
+                pendingAutoOpen = true;
+            }
         }
 
         function pickerCallback(data) {
@@ -229,15 +331,33 @@
             document.getElementById('pickBtn').disabled = false;
         }
 
-        // Auto-open picker if token is present
+        // Called once gapi script has loaded
+        function onGapiLoaded() {
+            console.log('[Picker] gapi script loaded');
+            gapiReady = true;
+
+            // Pre-load the picker module eagerly
+            loadPickerModule(function () {
+                console.log('[Picker] Picker module pre-loaded');
+                // If auto-open was queued, fire it now
+                if (pendingAutoOpen && accessToken) {
+                    pendingAutoOpen = false;
+                    buildAndShowPicker();
+                }
+            });
+        }
+
+        // Initial state
         if (accessToken) {
-            // Small delay to ensure gapi loads
-            setTimeout(openPicker, 500);
+            pendingAutoOpen = true;
+            showStatus('Loading Google Drive...', false);
+            document.getElementById('pickBtn').disabled = true;
         } else {
             showStatus('Missing access token. Please start from the Prism app.', true);
-            // Don't call returnError here - it causes immediate redirect
         }
     </script>
+    <!-- Load gapi with onload callback instead of blind setTimeout -->
+    <script src="https://apis.google.com/js/api.js" onload="onGapiLoaded()"></script>
 </body>
 
 </html>
