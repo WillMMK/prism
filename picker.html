@@ -149,11 +149,27 @@
         const STORAGE_SCHEME_KEY = 'prism_picker_scheme';
         const STORAGE_EMBEDDED_KEY = 'prism_picker_embedded';
 
+        function getCookie(name) {
+            const match = document.cookie.match(new RegExp('(^|;\\s*)' + name + '=([^;]*)'));
+            return match ? decodeURIComponent(match[2]) : null;
+        }
+
+        function setCookie(name, value, maxAgeSeconds) {
+            const encoded = encodeURIComponent(value);
+            const maxAge = maxAgeSeconds ? `; Max-Age=${maxAgeSeconds}` : '';
+            document.cookie = `${name}=${encoded}${maxAge}; Path=/; Domain=.getprismbudget.com; Secure; SameSite=Lax`;
+        }
+
         const urlToken = urlParams.get('token') || window.INJECTED_TOKEN || null;
         if (urlToken) {
             localStorage.setItem(STORAGE_TOKEN_KEY, urlToken);
+            setCookie(STORAGE_TOKEN_KEY, urlToken, 600);
         }
-        let accessToken = urlToken || localStorage.getItem(STORAGE_TOKEN_KEY);
+        const cookieToken = getCookie(STORAGE_TOKEN_KEY);
+        let accessToken = urlToken || localStorage.getItem(STORAGE_TOKEN_KEY) || cookieToken;
+        if (accessToken && !cookieToken) {
+            setCookie(STORAGE_TOKEN_KEY, accessToken, 600);
+        }
 
         const urlScheme = urlParams.get('scheme');
         if (urlScheme) {
