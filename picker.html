@@ -134,7 +134,9 @@
         </button>
 
         <div id="status" class="status" style="display:none;"></div>
-        <div id="debug" class="status" style="display:none; text-align:left; margin-top:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px;"></div>
+        <div id="debug" class="status"
+            style="display:none; text-align:left; margin-top:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px;">
+        </div>
     </div>
 
     <script>
@@ -288,6 +290,9 @@
                     .build();
 
                 picker.setVisible(true);
+                // If we got here, the key is likely valid. Clear the reload flag.
+                sessionStorage.removeItem('prism_picker_reloaded');
+
                 document.getElementById('status').style.display = 'none';
                 document.getElementById('pickBtn').disabled = false;
                 retryCount = 0;
@@ -298,6 +303,22 @@
         }
 
         function handlePickerError(errorMsg) {
+            // Check if we already tried auto-reloading to fix environment/referrer issues
+            const alreadyReloaded = sessionStorage.getItem('prism_picker_reloaded');
+
+            // Critical auth/config errors that might be fixed by a reload (restoring Referrer)
+            const isAuthError = (errorMsg || '').toLowerCase().includes('key') ||
+                (errorMsg || '').toLowerCase().includes('origin') ||
+                (errorMsg || '').toLowerCase().includes('token');
+
+            // If it's an auth error and we haven't reloaded yet, do it immediately
+            if (isAuthError && !alreadyReloaded) {
+                console.log('[Picker] Auth error detected, attempting auto-reload...');
+                sessionStorage.setItem('prism_picker_reloaded', '1');
+                window.location.reload();
+                return;
+            }
+
             retryCount++;
             setDebug([
                 'state=pickerError',
@@ -318,6 +339,14 @@
                     });
                 }, 800 * retryCount);
             } else {
+                // If we failed after retries and haven't reloaded yet, try that as last resort
+                if (!alreadyReloaded) {
+                    console.log('[Picker] Exhausted retries, attempting auto-reload...');
+                    sessionStorage.setItem('prism_picker_reloaded', '1');
+                    window.location.reload();
+                    return;
+                }
+
                 showStatus('Failed to load picker: ' + errorMsg, true, true);
                 document.getElementById('pickBtn').disabled = false;
             }
